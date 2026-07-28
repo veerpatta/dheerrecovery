@@ -176,12 +176,17 @@ export function DoseCard(props: DoseCardProps) {
           area — the input sits transparently on top of it.
         */}
         {isTaken && props.takenClock ? (
-          <p className="relative mt-2 flex items-baseline gap-1.5 rounded-[10px] bg-white/70 px-2 py-1.5">
+          <p className="relative mt-2 flex items-baseline gap-1.5 rounded-[10px] bg-white/70 px-2 py-2">
             <span className="text-[10px] font-bold tracking-[0.1em] text-muted uppercase">
               <span className="lang-en">Taken at</span>
               <span className="lang-hi">लिया</span>
             </span>
-            <time className="text-[19px] leading-none font-extrabold tracking-tight text-teal-deep tabular-nums">
+            {/* The visible text is "6:45 am", which is not a valid time value —
+                dateTime carries the machine-readable "HH:MM". */}
+            <time
+              dateTime={props.takenClock}
+              className="text-[19px] leading-none font-extrabold tracking-tight text-teal-deep tabular-nums"
+            >
               {prettyTime(props.takenClock)}
             </time>
             {props.drift !== null ? (
