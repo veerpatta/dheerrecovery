@@ -21,6 +21,7 @@ import {
   prettyTime,
   shortDay,
 } from '@/lib/time'
+import { toneOf } from '@/lib/tone'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,20 +37,6 @@ const HEAT_CELL: Record<string, string> = {
   skipped: 'bg-coral',
   'not-recorded': 'bg-amber/40',
   upcoming: 'bg-line',
-}
-
-const TONE_BAR: Record<string, string> = {
-  recovery: 'bg-teal',
-  seizure: 'bg-violet',
-  bp: 'bg-blue',
-  comfort: 'bg-amber',
-}
-
-const TONE_HEX: Record<string, string> = {
-  recovery: '#29a997',
-  seizure: '#8069b0',
-  bp: '#507fc6',
-  comfort: '#d7972c',
 }
 
 export default async function HistoryPage({
@@ -251,7 +238,7 @@ export default async function HistoryPage({
           </p>
           {intake.map((c) => (
             <div key={c.medicineId} className="card-toned">
-              <span className={`spine ${TONE_BAR[c.tone] ?? 'bg-teal'}`} aria-hidden />
+              <span className={`spine ${toneOf(c.tone).bar}`} aria-hidden />
               <div className="flex flex-col gap-2.5 py-3.5 pr-3.5 pl-[18px]">
                 <div className="flex items-center justify-between gap-2.5">
                   <p className="text-[14.5px] font-extrabold text-navy">{c.brand}</p>
@@ -278,7 +265,7 @@ export default async function HistoryPage({
                     className="block h-full rounded-full"
                     style={{
                       width: `${c.percent}%`,
-                      background: TONE_HEX[c.tone] ?? TONE_HEX.recovery,
+                      background: toneOf(c.tone).hex,
                     }}
                   />
                 </div>

@@ -1,21 +1,9 @@
 import { getHousehold } from '@/lib/household'
 import { getMedicines } from '@/lib/queries'
 import { prettyRxDate, prettyTime } from '@/lib/time'
+import { sosStyleOf, toneOf } from '@/lib/tone'
 
 export const dynamic = 'force-dynamic'
-
-const TONE_BAR: Record<string, string> = {
-  recovery: 'bg-teal',
-  seizure: 'bg-violet',
-  bp: 'bg-blue',
-  comfort: 'bg-amber',
-}
-
-const SOS_PILL: Record<string, { label: string; className: string }> = {
-  current: { label: 'Current SOS', className: 'bg-coral text-white' },
-  previous: { label: 'Confirm first', className: 'bg-amber/15 text-amber' },
-  supportive: { label: 'Supportive care', className: 'bg-mint text-teal' },
-}
 
 function Field({ label, value }: { label: string; value: string | null }) {
   if (!value) return null
@@ -35,11 +23,11 @@ export default async function ChartPage() {
 
   function Card({ m }: { m: (typeof meds)[number] }) {
     const times = m.slots.map((s) => prettyTime(s.time)).join(' · ')
-    const sosPill = m.sosStatus ? SOS_PILL[m.sosStatus] : null
+    const sosPill = sosStyleOf(m.sosStatus)
 
     return (
       <li className="card-toned">
-        <span className={`spine ${TONE_BAR[m.tone] ?? 'bg-teal'}`} aria-hidden />
+        <span className={`spine ${toneOf(m.tone).bar}`} aria-hidden />
         <div className="flex flex-col gap-2.5 py-3.5 pr-3.5 pl-[18px]">
           <div className="flex items-start justify-between gap-2.5">
             <div className="min-w-0">

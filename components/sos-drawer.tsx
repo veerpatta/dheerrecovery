@@ -5,19 +5,8 @@ import { archiveMedicine, logSosDose } from '@/lib/actions'
 import type { DoseRecord } from '@/db/schema'
 import type { MedicineWithSlots } from '@/lib/queries'
 import { prettyDateTime } from '@/lib/time'
+import { SOS_STATUS, sosStyleOf } from '@/lib/tone'
 import { Sheet, useChrome } from './chrome'
-
-const STATUS_STYLE: Record<string, string> = {
-  current: 'bg-coral text-white',
-  previous: 'bg-amber/15 text-amber',
-  supportive: 'bg-mint text-teal',
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  current: 'Current SOS',
-  previous: 'Confirm first',
-  supportive: 'Supportive care',
-}
 
 /**
  * SOS sits outside the reminder schedule on purpose. Logging an entry records
@@ -74,6 +63,8 @@ export function SosSheet({
       <ul className="flex flex-col gap-2.5">
         {medicines.map((m) => {
           const last = lastLoggedFor(m.id)
+          // Anything unrecognised is treated as an older instruction to check.
+          const status = sosStyleOf(m.sosStatus) ?? SOS_STATUS.previous
           return (
             <li key={m.id} className="card flex flex-col gap-2">
               <div className="flex items-start justify-between gap-2.5">
@@ -81,10 +72,8 @@ export function SosSheet({
                   <p className="text-[14.5px] font-extrabold text-navy">{m.brand}</p>
                   <p className="text-[11.5px] text-muted">{m.dose}</p>
                 </div>
-                <span
-                  className={`pill shrink-0 ${STATUS_STYLE[m.sosStatus ?? 'previous']}`}
-                >
-                  {STATUS_LABEL[m.sosStatus ?? 'previous']}
+                <span className={`pill shrink-0 ${status.className}`}>
+                  {status.label}
                 </span>
               </div>
 

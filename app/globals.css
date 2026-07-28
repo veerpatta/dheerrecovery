@@ -19,6 +19,19 @@
   --color-blue: #507fc6;
   --color-violet: #8069b0;
 
+  /*
+   * Status washes for the timeline. The bright amber and coral above are fills
+   * and dots; small bold white text on them fails contrast, so pills and label
+   * text use the darker `-ink` pair instead.
+   */
+  --color-teal-tint: #f2fbf9;
+  --color-teal-line: #a9ddd3;
+  --color-amber-soft: #fdf3e2;
+  --color-amber-line: #e7c58c;
+  --color-amber-ink: #8a5d10;
+  --color-coral-line: #f4b6a8;
+  --color-coral-ink: #c04630;
+
   --font-sans:
     var(--font-inter), var(--font-devanagari), ui-sans-serif, -apple-system,
     BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -28,6 +41,22 @@
 
   /* The design is a 430px phone. Everything wider is backdrop. */
   --shell-width: 430px;
+}
+
+/*
+ * Timeline rail geometry. Deliberately NOT in @theme: Tailwind v4 prunes theme
+ * variables no generated utility consumes, and these are only ever read by
+ * var() inside @layer components — pruned, the grid collapses to `0px 0px 1fr`.
+ *
+ * The gutter is sized for "12:20 pm", the longest time this page prints — it
+ * measures 60px at this weight, so 62 leaves a little headroom. It must never
+ * wrap: the smoke test asserts the time appears contiguously in innerText.
+ */
+:root {
+  --rail-gutter: 62px;
+  --rail-gap: 6px;
+  --rail-node: 16px;
+  --rail-space: 10px;
 }
 
 html {
@@ -114,6 +143,122 @@ a:hover {
            text-[10.5px] font-bold uppercase tracking-[0.04em];
   }
 
+  /*
+   * ------------------------------------------------------------ time rail --
+   * The day reads as one vertical line: due time in a fixed gutter, a status
+   * node on the rail, and a compact card. Colour on the card and the shape of
+   * the node both carry status, so neither is the only channel.
+   */
+  .timeline {
+    @apply relative flex flex-col;
+  }
+
+  .rail-row {
+    display: grid;
+    grid-template-columns: var(--rail-gutter) var(--rail-node) minmax(0, 1fr);
+    column-gap: var(--rail-gap);
+    align-items: start;
+    padding-bottom: var(--rail-space);
+  }
+  .rail-row:last-child {
+    padding-bottom: 0;
+  }
+
+  .rail-time {
+    @apply pt-[9px] text-right text-[12px] leading-none font-extrabold
+           tracking-[-0.01em] whitespace-nowrap text-navy tabular-nums;
+  }
+  .rail-row[data-status='taken'] .rail-time,
+  .rail-row[data-status='skipped'] .rail-time,
+  .rail-row[data-kind='logged'] .rail-time {
+    @apply text-muted;
+  }
+
+  .rail-node {
+    @apply relative flex justify-center pt-2.5;
+  }
+  /* Drawn per row and bridged across the row gap, so the line can be tinted
+     past/future without breaking at the "now" marker. */
+  .rail-node::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: calc(var(--rail-space) * -1);
+    left: 50%;
+    translate: -50% 0;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--color-line);
+  }
+  .rail-row:first-child .rail-node::before {
+    top: 12px;
+  }
+  .rail-row:last-child .rail-node::before {
+    bottom: auto;
+    height: 12px;
+  }
+  .rail-row[data-past='true'] .rail-node::before {
+    background: var(--color-teal-line);
+  }
+
+  /* Each modifier spells out its own utilities — see the note above about
+     @apply and same-layer classes. */
+  .node {
+    @apply relative z-[1] block h-[14px] w-[14px] rounded-full border-2 border-line bg-white;
+  }
+  .node-taken {
+    @apply border-teal bg-teal;
+    box-shadow: 0 0 0 3px var(--color-mint);
+  }
+  .node-due {
+    @apply border-amber bg-white;
+    box-shadow: 0 0 0 3px var(--color-amber-soft);
+  }
+  .node-upcoming {
+    @apply h-[11px] w-[11px] border-line bg-white;
+  }
+  .node-skipped {
+    @apply mt-[5px] h-[4px] w-[14px] rounded-full border-0 bg-coral;
+  }
+  .node-sos {
+    @apply h-[12px] w-[12px] rounded-[3px] border-0 bg-coral;
+    transform: rotate(45deg);
+  }
+  .node-added {
+    @apply h-[12px] w-[12px] rounded-[3px] border-0 bg-teal;
+    transform: rotate(45deg);
+  }
+  .node-now {
+    @apply h-[9px] w-[9px] border-0 bg-teal;
+  }
+  /* The next dose due gets a ring rather than a border colour, so it cannot
+     fight the status wash on the card. */
+  .rail-row[data-next='true'] .node {
+    box-shadow:
+      0 0 0 3px #fff,
+      0 0 0 5px var(--color-teal);
+  }
+
+  .tone-dot {
+    @apply inline-block h-[7px] w-[7px] shrink-0 rounded-full;
+  }
+
+  .rail-card {
+    @apply px-3 py-2.5;
+  }
+  .rail-card[data-status='taken'] {
+    background: var(--color-teal-tint);
+    border-color: var(--color-teal-line);
+  }
+  .rail-card[data-status='not-recorded'] {
+    background: var(--color-amber-soft);
+    border-color: var(--color-amber-line);
+  }
+  .rail-card[data-status='skipped'] {
+    background: var(--color-coral-soft);
+    border-color: var(--color-coral-line);
+  }
+
   /* Chip row used by the 7/14/30 window and range selectors. */
   .chip {
     @apply rounded-full border border-line bg-white px-3.5 py-1.5
@@ -160,6 +305,71 @@ a:hover {
 }
 .animate-toast-in {
   animation: toastIn 0.25s ease;
+}
+
+/*
+ * ------------------------------------------------------------ scroll reveal --
+ * Timeline rows ease in as they enter the viewport.
+ *
+ * The hidden state exists ONLY inside a keyframe `from`, and the animation is
+ * only ever attached inside @supports. A browser without scroll-driven
+ * animations — Safari/iOS, the likely phone here — drops the whole block and
+ * renders every row at its natural opacity. There is deliberately no
+ * standalone "start hidden" rule anywhere that could strand a card invisible
+ * if the animation never runs.
+ *
+ * Only opacity and transform are animated, never visibility or display, so the
+ * rows stay readable and clickable to Playwright throughout.
+ */
+@keyframes railReveal {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* `scale` is its own property, so this composes with the diamond node's
+   transform: rotate(45deg) instead of overwriting it. */
+@keyframes railNodePop {
+  from {
+    scale: 0.4;
+    opacity: 0;
+  }
+  to {
+    scale: 1;
+    opacity: 1;
+  }
+}
+@keyframes nowPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .reveal {
+      animation: railReveal linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 40%;
+      will-change: opacity, transform;
+    }
+    .reveal .node {
+      animation: railNodePop linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 60%;
+    }
+  }
+  .rail-now-dot {
+    animation: nowPulse 2.4s ease-in-out infinite;
+  }
 }
 
 /* Scroll regions inside the shell hide their bars, as a native app would. */
@@ -225,6 +435,23 @@ html[data-lang='hi'] .lang-hi {
   .card-toned {
     box-shadow: none;
     border-color: #cbd5cf;
+  }
+  /* Screen-only chrome: status washes muddy on paper, and a printed page has
+     no scroll to reveal anything. */
+  .reveal,
+  .reveal .node,
+  .rail-now-dot {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    scale: 1 !important;
+  }
+  .rail-card {
+    background: #fff !important;
+  }
+  .rail-node,
+  .rail-node::before {
+    display: none !important;
   }
   @page {
     margin: 14mm;

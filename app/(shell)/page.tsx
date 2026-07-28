@@ -62,6 +62,12 @@ export default async function TodayPage() {
   type TimelineItem =
     | { kind: 'scheduled'; minutes: number; dose: (typeof schedule)[number] }
     | { kind: 'logged'; minutes: number; entry: (typeof logged)[number] }
+    | { kind: 'now'; minutes: number }
+
+  // The page is force-dynamic, so "now" is a plain server value — no client
+  // clock, and nothing to mismatch on hydration.
+  const nowMinutes = careMinutes()
+  const nowLabel = prettyTime(careClock())
 
   const timeline: TimelineItem[] = [
     ...schedule.map((dose) => ({
@@ -74,7 +80,16 @@ export default async function TodayPage() {
       minutes: careMinutes(entry.at),
       entry,
     })),
-  ].sort((a, b) => a.minutes - b.minutes)
+    ...(schedule.length || logged.length
+      ? [{ kind: 'now' as const, minutes: nowMinutes }]
+      : []),
+  ].sort(
+    // A dose due at exactly this minute sorts above the marker: it is still
+    // the thing to act on, not something the day has moved past.
+    (a, b) =>
+      a.minutes - b.minutes ||
+      (a.kind === 'now' ? 1 : 0) - (b.kind === 'now' ? 1 : 0),
+  )
 
   const band = bandOf(household)
   const bp = summarise(readings, band)
@@ -284,9 +299,28 @@ export default async function TodayPage() {
         </p>
       </div>
 
-      <ul className="flex flex-col gap-3">
+      <ul className="timeline">
         {timeline.map((item) =>
-          item.kind === 'scheduled' ? (
+          item.kind === 'now' ? (
+            <li
+              key="now"
+              role="separator"
+              className="rail-row reveal"
+              data-past="true"
+            >
+              <p className="rail-time text-teal-deep">{nowLabel}</p>
+              <span className="rail-node" aria-hidden>
+                <span className="node node-now rail-now-dot" />
+              </span>
+              <div className="flex items-center gap-2 pt-2.5">
+                <span className="h-[2px] flex-1 rounded-full bg-teal/40" />
+                <span className="text-[9.5px] font-bold tracking-[0.14em] text-teal-deep uppercase">
+                  <span className="lang-en">Now</span>
+                  <span className="lang-hi">अभी</span>
+                </span>
+              </div>
+            </li>
+          ) : item.kind === 'scheduled' ? (
             <DoseCard
               key={`${item.dose.medicine.id}-${item.dose.slotKey}`}
               doseDate={today}
