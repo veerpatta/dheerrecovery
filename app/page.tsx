@@ -1,8 +1,20 @@
+import { redirect } from 'next/navigation'
 import { PRESCRIBER, PRESCRIPTION_DATE } from '@/lib/catalog'
+import { isValidCareCode } from '@/lib/care-code'
+import { findHousehold } from '@/lib/queries'
 import { prettyRxDate } from '@/lib/time'
 import { EntryForms } from '@/components/entry-forms'
 
-export default function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ care?: string }>
+}) {
+  const { care } = await searchParams
+  if (care && isValidCareCode(care) && (await findHousehold(care))) {
+    redirect(`/c/${encodeURIComponent(care)}`)
+  }
+
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-xl flex-col justify-center gap-6 px-5 py-12">
       <header className="space-y-2">

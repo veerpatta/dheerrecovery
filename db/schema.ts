@@ -34,6 +34,7 @@ export const households = pgTable(
     bandSystolicHigh: integer('band_systolic_high').notNull().default(135),
     bandDiastolicLow: integer('band_diastolic_low').notNull().default(60),
     bandDiastolicHigh: integer('band_diastolic_high').notNull().default(85),
+    bandConfirmed: boolean('band_confirmed').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -146,6 +147,12 @@ export const bpReadings = pgTable(
     pulse: integer('pulse'),
     /** Free-text symptom tags recorded alongside the reading. */
     symptoms: text('symptoms'),
+    /** Context captured by the original quick-BP workflow. */
+    context: text('context'),
+    position: text('position'),
+    arm: text('arm'),
+    /** Shared identifier for two readings taken as one home-BP session. */
+    pairId: text('pair_id'),
     measuredAt: timestamp('measured_at', { withTimezone: true }).notNull(),
     note: text('note'),
     createdAt: timestamp('created_at', { withTimezone: true })

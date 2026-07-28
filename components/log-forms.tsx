@@ -28,15 +28,61 @@ function useAction() {
   return { pending, error, run }
 }
 
-export function BpForm({ code }: { code: string }) {
+const BP_SYMPTOMS = [
+  'Dizziness',
+  'Headache',
+  'Weakness',
+  'Blurred vision',
+  'Chest discomfort',
+  'Breathlessness',
+] as const
+
+export function BpForm({
+  code,
+  band,
+}: {
+  code: string
+  band: {
+    systolicLow: number
+    systolicHigh: number
+    diastolicLow: number
+    diastolicHigh: number
+  }
+}) {
   const form = useRef<HTMLFormElement>(null)
-  const { pending, error, run } = useAction()
+  const [pending, start] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+  const [pairId, setPairId] = useState<string | null>(null)
+  const [reaction, setReaction] = useState<{
+    level: 'severe' | 'low' | 'high' | 'range'
+    systolic: number
+    diastolic: number
+  } | null>(null)
+
+  const save = (fd: FormData) => {
+    setError(null)
+    start(async () => {
+      try {
+        const result = await logBp(code, fd)
+        setReaction({
+          level: result.level,
+          systolic: result.reading.systolic,
+          diastolic: result.reading.diastolic,
+        })
+        setPairId(result.pairId)
+        form.current?.reset()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not save that reading.')
+      }
+    })
+  }
 
   return (
     <form
       ref={form}
       id="log-bp"
-      action={(fd) => run(() => logBp(code, fd), () => form.current?.reset())}
+      action={save}
+      aria-busy={pending}
       className="card scroll-mt-32 space-y-3"
     >
       <div>
@@ -47,6 +93,7 @@ export function BpForm({ code }: { code: string }) {
         </p>
       </div>
 
+      <fieldset disabled={pending} className="contents">
       <div className="grid grid-cols-3 gap-2">
         <label className="space-y-1">
           <span className="eyebrow">Systolic</span>
@@ -88,24 +135,123 @@ export function BpForm({ code }: { code: string }) {
         </label>
       </div>
 
-      <label className="block space-y-1">
-        <span className="eyebrow">Symptoms (optional)</span>
-        <input
-          name="symptoms"
-          placeholder="Dizziness, headache, chest pain…"
-          className="field"
-        />
-      </label>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <label className="space-y-1">
+          <span className="eyebrow">Context</span>
+          <select name="context" defaultValue="Resting" className="field">
+            <option>Resting</option>
+            <option>After activity</option>
+            <option>Before medicine</option>
+            <option>After medicine</option>
+            <option>Feeling unwell</option>
+          </select>
+        </label>
+        <label className="space-y-1">
+          <span className="eyebrow">Position</span>
+          <select name="position" defaultValue="Seated" className="field">
+            <option>Seated</option>
+            <option>Lying down</option>
+            <option>Standing</option>
+          </select>
+        </label>
+        <label className="space-y-1">
+          <span className="eyebrow">Arm</span>
+          <select name="arm" defaultValue="" className="field">
+            <option value="">Not recorded</option>
+            <option>Left</option>
+            <option>Right</option>
+          </select>
+        </label>
+      </div>
+
+      <fieldset>
+        <legend className="eyebrow">Symptoms (optional)</legend>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {BP_SYMPTOMS.map((symptom) => (
+            <label
+              key={symptom}
+              className="flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1.5 text-xs font-semibold text-muted"
+            >
+              <input
+                name="symptom"
+                type="checkbox"
+                value={symptom}
+                className="accent-teal"
+              />
+              {symptom}
+            </label>
+          ))}
+        </div>
+      </fieldset>
 
       <label className="block space-y-1">
         <span className="eyebrow">Measured at</span>
         <input name="measuredAt" type="datetime-local" className="field" />
       </label>
+      </fieldset>
+
+      <input name="pairId" type="hidden" value={pairId ?? ''} />
+
+      {pairId ? (
+        <p className="rounded-xl bg-mint px-3 py-2 text-xs font-semibold text-teal">
+          First reading saved. Rest quietly for about one minute, then save the
+          second reading below.
+        </p>
+      ) : null}
+
+      {reaction ? (
+        <div
+          role="status"
+          className={`rounded-xl px-3 py-2.5 text-xs leading-relaxed ${
+            reaction.level === 'severe'
+              ? 'bg-coral-soft text-coral'
+              : reaction.level === 'low' || reaction.level === 'high'
+                ? 'bg-amber/15 text-ink'
+                : 'bg-mint text-teal'
+          }`}
+        >
+          <p className="font-bold">
+            Saved {reaction.systolic}/{reaction.diastolic}.
+          </p>
+          {reaction.level === 'severe' ? (
+            <p className="mt-1">
+              This is far outside the reference band. Recheck after quiet rest and
+              seek urgent medical help if it remains very high or there are
+              concerning symptoms.
+            </p>
+          ) : reaction.level === 'high' || reaction.level === 'low' ? (
+            <p className="mt-1">
+              Outside the family reference band of {band.systolicLow}/
+              {band.diastolicLow}–{band.systolicHigh}/{band.diastolicHigh}.
+              Recheck calmly and follow the treating doctor’s plan.
+            </p>
+          ) : (
+            <p className="mt-1">Inside the current family reference band.</p>
+          )}
+        </div>
+      ) : null}
 
       {error ? <p className="text-sm font-medium text-coral">{error}</p> : null}
-      <button type="submit" disabled={pending} className="btn-primary w-full">
-        {pending ? 'Saving…' : 'Save BP'}
-      </button>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <button
+          type="submit"
+          name="mode"
+          value="pair"
+          disabled={pending}
+          className="btn-ghost w-full"
+        >
+          {pending ? 'Saving…' : pairId ? 'Save + another reading' : 'Save + second reading'}
+        </button>
+        <button
+          type="submit"
+          name="mode"
+          value="single"
+          disabled={pending}
+          className="btn-primary w-full"
+        >
+          {pending ? 'Saving…' : pairId ? 'Save and finish pair' : 'Save BP'}
+        </button>
+      </div>
     </form>
   )
 }
@@ -120,6 +266,7 @@ export function BandForm({
     systolicHigh: number
     diastolicLow: number
     diastolicHigh: number
+    confirmed?: boolean
   }
 }) {
   const [open, setOpen] = useState(false)
@@ -166,6 +313,17 @@ export function BandForm({
           </label>
         ))}
       </div>
+      <label className="flex items-start gap-2 rounded-xl border border-line bg-white p-3 text-xs leading-relaxed text-ink/80">
+        <input
+          name="bandConfirmed"
+          type="checkbox"
+          defaultChecked={band.confirmed}
+          className="mt-0.5 accent-teal"
+        />
+        <span>
+          These limits were confirmed by the treating doctor for this patient.
+        </span>
+      </label>
       {error ? <p className="text-sm font-medium text-coral">{error}</p> : null}
       <div className="flex gap-2">
         <button type="submit" disabled={pending} className="btn-primary flex-1">

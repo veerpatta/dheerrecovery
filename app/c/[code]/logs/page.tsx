@@ -72,7 +72,7 @@ export default async function LogsPage({
         </p>
       </section>
 
-      <BpForm code={code} />
+      <BpForm code={code} band={band} />
 
       <section className="card space-y-4">
         <div>
@@ -218,6 +218,13 @@ export default async function LogsPage({
                         {prettyDateTime(r.measuredAt)}
                         {r.symptoms ? ` · ${r.symptoms}` : ''}
                       </p>
+                      {r.context || r.position || r.arm ? (
+                        <p className="mt-0.5 text-[11px] text-muted">
+                          {[r.context, r.position, r.arm ? `${r.arm} arm` : null]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </p>
+                      ) : null}
                     </div>
                     <DeleteButton code={code} id={r.id} kind="bp" />
                   </li>
@@ -234,10 +241,16 @@ export default async function LogsPage({
           <p className="mt-0.5 text-xs leading-relaxed text-ink/80">
             {band.systolicLow}/{band.diastolicLow} to {band.systolicHigh}/
             {band.diastolicHigh}. A single unusual reading does not establish a
-            trend.
+            trend.{' '}
+            {household.bandConfirmed
+              ? 'These limits are marked as doctor-confirmed.'
+              : 'These limits are not yet marked as doctor-confirmed.'}
           </p>
           <div className="mt-2">
-            <BandForm code={code} band={band} />
+            <BandForm
+              code={code}
+              band={{ ...band, confirmed: household.bandConfirmed }}
+            />
           </div>
         </div>
       </section>

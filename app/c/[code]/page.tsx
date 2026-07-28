@@ -42,6 +42,17 @@ export default async function TodayPage({
     (d) => d.status === 'not-recorded' || d.status === 'upcoming',
   ).length
   const next = schedule.find((d) => d.status === 'upcoming')
+  const manualRecords = records.filter((record) =>
+    record.slotKey.startsWith('manual-'),
+  )
+  const customUnscheduled = meds
+    .filter((medicine) => medicine.isCustom && medicine.slots.length === 0)
+    .map((medicine) => ({
+      medicine,
+      record: manualRecords.find(
+        (record) => record.medicineId === medicine.id,
+      ),
+    }))
 
   const routineCount = meds.filter((m) => m.kind === 'routine').length
   const sosCount = meds.filter((m) => m.kind === 'sos').length
@@ -130,6 +141,54 @@ export default async function TodayPage({
           </Link>
         </div>
       </section>
+
+      {customUnscheduled.length ? (
+        <section className="card">
+          <p className="eyebrow">Caregiver-added medicines</p>
+          <h2 className="mt-1 text-base font-bold text-navy">
+            Added outside the printed schedule
+          </h2>
+          <ul className="mt-3 space-y-2">
+            {customUnscheduled.map(({ medicine, record }) => (
+              <li
+                key={medicine.id}
+                className="flex items-start justify-between gap-3 rounded-xl bg-paper px-3 py-2.5"
+              >
+                <div>
+                  <p className="text-sm font-bold text-navy">{medicine.brand}</p>
+                  <p className="text-xs text-muted">
+                    {medicine.dose} · No reminder schedule
+                  </p>
+                  {record?.takenAt ? (
+                    <p className="mt-0.5 text-[11px] text-muted">
+                      Recorded {prettyDateTime(record.takenAt)}
+                    </p>
+                  ) : null}
+                </div>
+                <span
+                  className={`pill shrink-0 ${
+                    record?.status === 'taken'
+                      ? 'bg-mint text-teal'
+                      : record?.status === 'skipped'
+                        ? 'bg-coral-soft text-coral'
+                        : 'bg-white text-muted'
+                  }`}
+                >
+                  {record?.status === 'taken'
+                    ? 'Taken'
+                    : record?.status === 'skipped'
+                      ? 'Skipped'
+                      : 'Added'}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs leading-relaxed text-muted">
+            These entries are caregiver-added and are not part of the current
+            printed prescription.
+          </p>
+        </section>
+      ) : null}
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2 px-1">

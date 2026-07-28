@@ -4,6 +4,7 @@ import { isValidCareCode } from '@/lib/care-code'
 import {
   buildDaySchedule,
   findHousehold,
+  getAllMedicines,
   getBpReadings,
   getCareNotes,
   getDoseRecords,
@@ -53,8 +54,9 @@ export async function GET(
     ? url.searchParams.get('from')!
     : addDays(to, -29)
 
-  const [meds, records, readings, seizures, notes] = await Promise.all([
+  const [meds, allMeds, records, readings, seizures, notes] = await Promise.all([
     getMedicines(household.id),
+    getAllMedicines(household.id),
     getDoseRecords(household.id, from, to),
     getBpReadings(household.id, 1000),
     getSeizureEvents(household.id),
@@ -118,6 +120,7 @@ export async function GET(
     { header: 'Note', key: 'note', width: 34 },
   ]
   for (const date of dateRange(from, to)) {
+    if (date < household.courseStart) continue
     for (const d of buildDaySchedule(meds, records, date)) {
       const drift =
         d.record?.takenAt && d.record.scheduledTime
@@ -146,7 +149,8 @@ export async function GET(
   styleHeader(ledger)
 
   // ------------------------------------------------------- 3. SOS log ----
-  const medById = new Map(meds.map((m) => [m.id, m]))
+  const activeIds = new Set(meds.map((m) => m.id))
+  const medById = new Map(allMeds.map((m) => [m.id, m]))
   const sosSheet = wb.addWorksheet('SOS log')
   sosSheet.columns = [
     { header: 'Date', key: 'date', width: 14 },
@@ -158,7 +162,7 @@ export async function GET(
   ]
   for (const r of records) {
     const m = medById.get(r.medicineId)
-    if (!m || m.kind !== 'sos') continue
+    if (!m || !activeIds.has(m.id) || m.kind !== 'sos') continue
     sosSheet.addRow({
       date: r.doseDate,
       taken: r.takenAt
@@ -179,6 +183,10 @@ export async function GET(
     { header: 'Systolic', key: 'sys', width: 10 },
     { header: 'Diastolic', key: 'dia', width: 10 },
     { header: 'Pulse', key: 'pulse', width: 10 },
+    { header: 'Context', key: 'context', width: 20 },
+    { header: 'Position', key: 'position', width: 16 },
+    { header: 'Arm', key: 'arm', width: 10 },
+    { header: 'Pair ID', key: 'pair', width: 38 },
     { header: 'Symptoms', key: 'sym', width: 36 },
     { header: 'Note', key: 'note', width: 36 },
   ]
@@ -190,6 +198,10 @@ export async function GET(
       sys: r.systolic,
       dia: r.diastolic,
       pulse: r.pulse ?? '',
+      context: r.context ?? '',
+      position: r.position ?? '',
+      arm: r.arm ?? '',
+      pair: r.pairId ?? '',
       sym: r.symptoms ?? '',
       note: r.note ?? '',
     })
@@ -231,6 +243,40 @@ export async function GET(
     if (i > 1) r.alignment = { vertical: 'top', wrapText: true }
   })
   styleHeader(recovery)
+
+  // ------------------------------------------ 6. Prior prescription ----
+  const prior = wb.addWorksheet('Previous prescription')
+  prior.columns = [
+    { header: 'Date', key: 'date', width: 14 },
+    { header: 'Scheduled time', key: 'time', width: 16 },
+    { header: 'Medicine', key: 'brand', width: 24 },
+    { header: 'Generic', key: 'generic', width: 34 },
+    { header: 'Dose', key: 'dose', width: 24 },
+    { header: 'Status', key: 'status', width: 14 },
+    { header: 'Recorded at', key: 'taken', width: 22 },
+    { header: 'Note', key: 'note', width: 40 },
+  ]
+  for (const record of records) {
+    if (activeIds.has(record.medicineId)) continue
+    const medicine = medById.get(record.medicineId)
+    if (!medicine?.archivedAt) continue
+    prior.addRow({
+      date: record.doseDate,
+      time: record.scheduledTime ? prettyTime(record.scheduledTime) : '',
+      brand: medicine.brand,
+      generic: medicine.generic ?? '',
+      dose: medicine.dose,
+      status:
+        record.status.charAt(0).toUpperCase() + record.status.slice(1),
+      taken: record.takenAt
+        ? new Date(record.takenAt).toLocaleString('en-GB', {
+            timeZone: 'Asia/Kolkata',
+          })
+        : '',
+      note: record.note ?? '',
+    })
+  }
+  styleHeader(prior)
 
   const buffer = await wb.xlsx.writeBuffer()
   const filename = `dheer-recovery-${from}-to-${to}.xlsx`
