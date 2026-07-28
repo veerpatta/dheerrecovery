@@ -13,14 +13,13 @@ const TABS: { seg: string; icon: string; k: StringKey }[] = [
   { seg: 'logs', icon: '⌁', k: 'recoveryLogs' },
 ]
 
-export function NavTabs({ code }: { code: string }) {
+export function NavTabs() {
   const pathname = usePathname()
-  const base = `/c/${code}`
 
   return (
     <nav className="-mx-4 mt-3 flex gap-1.5 overflow-x-auto px-4 pb-0.5">
       {TABS.map((tab) => {
-        const href = tab.seg ? `${base}/${tab.seg}` : base
+        const href = tab.seg ? `/${tab.seg}` : '/'
         const active = pathname === href
         return (
           <Link

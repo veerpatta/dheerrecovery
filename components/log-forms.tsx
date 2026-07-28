@@ -38,10 +38,8 @@ const BP_SYMPTOMS = [
 ] as const
 
 export function BpForm({
-  code,
   band,
 }: {
-  code: string
   band: {
     systolicLow: number
     systolicHigh: number
@@ -63,7 +61,7 @@ export function BpForm({
     setError(null)
     start(async () => {
       try {
-        const result = await logBp(code, fd)
+        const result = await logBp(fd)
         setReaction({
           level: result.level,
           systolic: result.reading.systolic,
@@ -257,10 +255,8 @@ export function BpForm({
 }
 
 export function BandForm({
-  code,
   band,
 }: {
-  code: string
   band: {
     systolicLow: number
     systolicHigh: number
@@ -286,7 +282,7 @@ export function BandForm({
 
   return (
     <form
-      action={(fd) => run(() => updateBand(code, fd), () => setOpen(false))}
+      action={(fd) => run(() => updateBand(fd), () => setOpen(false))}
       className="space-y-3 rounded-xl bg-paper p-3 no-print"
     >
       <p className="text-xs leading-relaxed text-muted">
@@ -341,14 +337,14 @@ export function BandForm({
   )
 }
 
-export function SeizureForm({ code }: { code: string }) {
+export function SeizureForm() {
   const form = useRef<HTMLFormElement>(null)
   const { pending, error, run } = useAction()
 
   return (
     <form
       ref={form}
-      action={(fd) => run(() => logSeizure(code, fd), () => form.current?.reset())}
+      action={(fd) => run(() => logSeizure(fd), () => form.current?.reset())}
       className="space-y-3"
     >
       <div className="grid grid-cols-2 gap-2">
@@ -396,14 +392,14 @@ export function SeizureForm({ code }: { code: string }) {
   )
 }
 
-export function NoteForm({ code }: { code: string }) {
+export function NoteForm() {
   const form = useRef<HTMLFormElement>(null)
   const { pending, error, run } = useAction()
 
   return (
     <form
       ref={form}
-      action={(fd) => run(() => addCareNote(code, fd), () => form.current?.reset())}
+      action={(fd) => run(() => addCareNote(fd), () => form.current?.reset())}
       className="space-y-3"
     >
       <label className="block space-y-1">
@@ -427,11 +423,9 @@ export function NoteForm({ code }: { code: string }) {
 }
 
 export function DeleteButton({
-  code,
   id,
   kind,
 }: {
-  code: string
   id: string
   kind: 'bp' | 'seizure' | 'note'
 }) {
@@ -443,7 +437,7 @@ export function DeleteButton({
     <button
       type="button"
       disabled={pending}
-      onClick={() => run(() => fn(code, id))}
+      onClick={() => run(() => fn(id))}
       className="shrink-0 text-xs font-semibold text-muted hover:text-coral no-print"
       aria-label="Remove this entry"
     >

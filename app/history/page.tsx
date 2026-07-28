@@ -1,8 +1,7 @@
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { getHousehold } from '@/lib/household'
 import {
   buildDaySchedule,
-  findHousehold,
   getAllMedicines,
   getDoseRecords,
   getMedicines,
@@ -28,16 +27,12 @@ const STATUS_TEXT: Record<string, { label: string; className: string }> = {
 }
 
 export default async function HistoryPage({
-  params,
   searchParams,
 }: {
-  params: Promise<{ code: string }>
   searchParams: Promise<{ from?: string; to?: string }>
 }) {
-  const { code } = await params
   const sp = await searchParams
-  const household = await findHousehold(code)
-  if (!household) notFound()
+  const household = await getHousehold()
 
   const today = careDate()
   const isDate = (v?: string) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v)
@@ -106,7 +101,7 @@ export default async function HistoryPage({
         </p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <a
-            href={`/c/${code}/export/xlsx?from=${lo}&to=${hi}`}
+            href={`/export/xlsx?from=${lo}&to=${hi}`}
             className="btn-ghost flex-col !items-start gap-0.5 !py-3"
           >
             <span className="text-sm font-bold text-navy">Export all to Excel</span>
@@ -115,7 +110,7 @@ export default async function HistoryPage({
             </span>
           </a>
           <Link
-            href={`/c/${code}/report?from=${lo}&to=${hi}`}
+            href={`/report?from=${lo}&to=${hi}`}
             className="btn-ghost flex-col !items-start gap-0.5 !py-3"
           >
             <span className="text-sm font-bold text-navy">Doctor report (PDF)</span>
@@ -146,7 +141,7 @@ export default async function HistoryPage({
         ))}
       </section>
 
-      <RangeForm code={code} from={lo} to={hi} />
+      <RangeForm from={lo} to={hi} />
 
       {importedRecords.length ? (
         <section className="card !p-0">
@@ -336,8 +331,8 @@ export default async function HistoryPage({
       ) : null}
 
       <p className="px-1 pb-2 text-xs leading-relaxed text-muted">
-        Complete shared record. History and recovery logs are stored under the
-        private caregiver link. A missing entry does not prove a missed dose.
+        Complete shared record. History and recovery logs are stored in the
+        shared database. A missing entry does not prove a missed dose.
       </p>
     </>
   )

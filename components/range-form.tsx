@@ -6,15 +6,7 @@ import { addDays, careDate } from '@/lib/time'
 
 const PRESETS = [7, 14, 30]
 
-export function RangeForm({
-  code,
-  from,
-  to,
-}: {
-  code: string
-  from: string
-  to: string
-}) {
+export function RangeForm({ from, to }: { from: string; to: string }) {
   const router = useRouter()
   const [start, setStart] = useState(from)
   const [end, setEnd] = useState(to)
@@ -22,7 +14,7 @@ export function RangeForm({
   function go(nextFrom: string, nextTo: string) {
     setStart(nextFrom)
     setEnd(nextTo)
-    router.push(`/c/${code}/history?from=${nextFrom}&to=${nextTo}`)
+    router.push(`/history?from=${nextFrom}&to=${nextTo}`)
   }
 
   return (

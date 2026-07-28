@@ -1,9 +1,7 @@
 import ExcelJS from 'exceljs'
 import { NextResponse } from 'next/server'
-import { isValidCareCode } from '@/lib/care-code'
 import {
   buildDaySchedule,
-  findHousehold,
   getAllMedicines,
   getBpReadings,
   getCareNotes,
@@ -11,6 +9,7 @@ import {
   getMedicines,
   getSeizureEvents,
 } from '@/lib/queries'
+import { getHousehold } from '@/lib/household'
 import {
   addDays,
   careDate,
@@ -32,19 +31,8 @@ function styleHeader(sheet: ExcelJS.Worksheet) {
   sheet.views = [{ state: 'frozen', ySplit: 1 }]
 }
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ code: string }> },
-) {
-  const { code } = await params
-  if (!isValidCareCode(code)) {
-    return NextResponse.json({ error: 'Invalid care code.' }, { status: 400 })
-  }
-
-  const household = await findHousehold(code)
-  if (!household) {
-    return NextResponse.json({ error: 'Care record not found.' }, { status: 404 })
-  }
+export async function GET(request: Request) {
+  const household = await getHousehold()
 
   const url = new URL(request.url)
   const today = careDate()

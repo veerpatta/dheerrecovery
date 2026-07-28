@@ -1,5 +1,5 @@
-import { notFound } from 'next/navigation'
-import { findHousehold, getMedicines } from '@/lib/queries'
+import { getHousehold } from '@/lib/household'
+import { getMedicines } from '@/lib/queries'
 import { prettyRxDate, prettyTime } from '@/lib/time'
 
 export const dynamic = 'force-dynamic'
@@ -27,14 +27,8 @@ function Field({ label, value }: { label: string; value: string | null }) {
   )
 }
 
-export default async function ChartPage({
-  params,
-}: {
-  params: Promise<{ code: string }>
-}) {
-  const { code } = await params
-  const household = await findHousehold(code)
-  if (!household) notFound()
+export default async function ChartPage() {
+  const household = await getHousehold()
 
   const meds = await getMedicines(household.id)
   const routine = meds.filter((m) => m.kind === 'routine')

@@ -13,58 +13,37 @@ import {
   medicines,
   seizureEvents,
 } from '@/db/schema'
-import { generateCareCode, isValidCareCode } from './care-code'
-import { createHousehold, findHousehold } from './queries'
+import { getHousehold } from './household'
 import { careDate } from './time'
 
-async function requireHousehold(careCode: string) {
-  if (!isValidCareCode(careCode)) throw new Error('Invalid care code.')
-  const household = await findHousehold(careCode)
-  if (!household) throw new Error('Care record not found.')
-  return household
+/** The app serves one record, so every write resolves it the same way. */
+async function requireHousehold() {
+  return getHousehold()
 }
 
 /**
  * Every write shows up on more than one tab — a dose tap changes Today, the
  * history ledger and the report; a BP reading changes Today's snapshot and the
- * logs page. So the whole care layout is revalidated rather than one segment.
- * All pages are `force-dynamic`, so this only clears the client router cache.
+ * logs page. So the whole app is revalidated rather than one segment. All
+ * pages are `force-dynamic`, so this only clears the client router cache.
  */
-function refresh(careCode: string) {
-  revalidatePath(`/c/${careCode}`, 'layout')
+function refresh() {
+  revalidatePath('/', 'layout')
 }
 
 // ------------------------------------------------------------- household ---
 
-export async function startNewRecord() {
-  const code = generateCareCode()
-  await createHousehold(code)
-  redirect(`/c/${code}`)
-}
-
-export async function openExistingRecord(formData: FormData) {
-  const raw = String(formData.get('careCode') ?? '').trim()
-  if (!isValidCareCode(raw)) {
-    return { error: 'That code does not look right. Check it and try again.' }
-  }
-  const household = await findHousehold(raw)
-  if (!household) {
-    return { error: 'No care record found for that code.' }
-  }
-  redirect(`/c/${raw}`)
-}
-
-export async function confirmPrescription(careCode: string) {
-  const h = await requireHousehold(careCode)
+export async function confirmPrescription() {
+  const h = await requireHousehold()
   await db
     .update(households)
     .set({ rxVerifiedAt: new Date(), updatedAt: new Date() })
     .where(eq(households.id, h.id))
-  refresh(careCode)
+  refresh()
 }
 
-export async function updateSettings(careCode: string, formData: FormData) {
-  const h = await requireHousehold(careCode)
+export async function updateSettings(formData: FormData) {
+  const h = await requireHousehold()
   const lead = Number(formData.get('alertLeadMinutes'))
   const courseStart = String(formData.get('courseStart') ?? h.courseStart)
 
@@ -76,11 +55,11 @@ export async function updateSettings(careCode: string, formData: FormData) {
       updatedAt: new Date(),
     })
     .where(eq(households.id, h.id))
-  refresh(careCode)
+  refresh()
 }
 
-export async function updateBand(careCode: string, formData: FormData) {
-  const h = await requireHousehold(careCode)
+export async function updateBand(formData: FormData) {
+  const h = await requireHousehold()
   const num = (k: string, fallback: number) => {
     const v = Number(formData.get(k))
     return Number.isFinite(v) && v > 20 && v < 300 ? Math.round(v) : fallback
@@ -96,7 +75,7 @@ export async function updateBand(careCode: string, formData: FormData) {
       updatedAt: new Date(),
     })
     .where(eq(households.id, h.id))
-  refresh(careCode)
+  refresh()
 }
 
 // ----------------------------------------------------------------- doses ---
@@ -107,7 +86,6 @@ export async function updateBand(careCode: string, formData: FormData) {
  * able to correct a mistaken tap.
  */
 export async function recordDose(
-  careCode: string,
   input: {
     medicineId: string
     slotKey: string
@@ -117,7 +95,7 @@ export async function recordDose(
     note?: string | null
   },
 ) {
-  const h = await requireHousehold(careCode)
+  const h = await requireHousehold()
 
   const [medicine] = await db
     .select()
@@ -156,7 +134,7 @@ export async function recordDose(
   if (existing) {
     if (existing.status === input.status) {
       await db.delete(doseRecords).where(eq(doseRecords.id, existing.id))
-      refresh(careCode)
+      refresh()
       return { cleared: true }
     }
     await db
@@ -180,16 +158,15 @@ export async function recordDose(
     })
   }
 
-  refresh(careCode)
+  refresh()
   return { cleared: false }
 }
 
 /** SOS doses sit outside the schedule and are always appended, never toggled. */
 export async function logSosDose(
-  careCode: string,
   input: { medicineId: string; takenAt?: string | null; note?: string | null },
 ) {
-  const h = await requireHousehold(careCode)
+  const h = await requireHousehold()
   const [medicine] = await db
     .select()
     .from(medicines)
@@ -213,14 +190,13 @@ export async function logSosDose(
     takenAt,
     note: input.note ?? null,
   })
-  refresh(careCode)
+  refresh()
 }
 
 export async function updateSlotTime(
-  careCode: string,
   input: { slotId: string; time: string },
 ) {
-  const h = await requireHousehold(careCode)
+  const h = await requireHousehold()
   if (!/^\d{2}:\d{2}$/.test(input.time)) throw new Error('Choose a valid dose time.')
 
   const [row] = await db
@@ -235,12 +211,12 @@ export async function updateSlotTime(
     .update(doseSlots)
     .set({ time: input.time })
     .where(eq(doseSlots.id, input.slotId))
-  refresh(careCode)
+  refresh()
 }
 
 /** Caregiver-added medicine — clearly flagged as not from the prescription. */
-export async function addCustomMedicine(careCode: string, formData: FormData) {
-  const h = await requireHousehold(careCode)
+export async function addCustomMedicine(formData: FormData) {
+  const h = await requireHousehold()
   const brand = String(formData.get('brand') ?? '').trim()
   const strength = String(formData.get('strength') ?? '').trim()
   const form = String(formData.get('form') ?? '').trim()
@@ -309,14 +285,14 @@ export async function addCustomMedicine(careCode: string, formData: FormData) {
       note,
     })
   }
-  refresh(careCode)
+  refresh()
   return { medicineId: med.id, logged: action === 'taken' }
 }
 
 // ------------------------------------------------------------------- bp ----
 
-export async function logBp(careCode: string, formData: FormData) {
-  const h = await requireHousehold(careCode)
+export async function logBp(formData: FormData) {
+  const h = await requireHousehold()
   const systolic = Number(formData.get('systolic'))
   const diastolic = Number(formData.get('diastolic'))
   const pulseRaw = formData.get('pulse')
@@ -370,7 +346,7 @@ export async function logBp(careCode: string, formData: FormData) {
       systolic: bpReadings.systolic,
       diastolic: bpReadings.diastolic,
     })
-  refresh(careCode)
+  refresh()
   const level: 'severe' | 'low' | 'high' | 'range' =
     systolic > 180 || diastolic > 120
       ? 'severe'
@@ -387,18 +363,18 @@ export async function logBp(careCode: string, formData: FormData) {
   }
 }
 
-export async function deleteBp(careCode: string, id: string) {
-  const h = await requireHousehold(careCode)
+export async function deleteBp(id: string) {
+  const h = await requireHousehold()
   await db
     .delete(bpReadings)
     .where(and(eq(bpReadings.id, id), eq(bpReadings.householdId, h.id)))
-  refresh(careCode)
+  refresh()
 }
 
 // -------------------------------------------------------- recovery logs ----
 
-export async function logSeizure(careCode: string, formData: FormData) {
-  const h = await requireHousehold(careCode)
+export async function logSeizure(formData: FormData) {
+  const h = await requireHousehold()
   const duration = Number(formData.get('durationMinutes'))
   const recovery = Number(formData.get('recoveryMinutes'))
   const description = String(formData.get('description') ?? '').trim()
@@ -414,29 +390,29 @@ export async function logSeizure(careCode: string, formData: FormData) {
     recoveryMinutes: Number.isFinite(recovery) ? Math.round(recovery) : null,
     description: description || null,
   })
-  refresh(careCode)
+  refresh()
 }
 
-export async function deleteSeizure(careCode: string, id: string) {
-  const h = await requireHousehold(careCode)
+export async function deleteSeizure(id: string) {
+  const h = await requireHousehold()
   await db
     .delete(seizureEvents)
     .where(and(eq(seizureEvents.id, id), eq(seizureEvents.householdId, h.id)))
-  refresh(careCode)
+  refresh()
 }
 
-export async function addCareNote(careCode: string, formData: FormData) {
-  const h = await requireHousehold(careCode)
+export async function addCareNote(formData: FormData) {
+  const h = await requireHousehold()
   const body = String(formData.get('body') ?? '').trim()
   if (!body) throw new Error('Write something before saving the note.')
   await db.insert(careNotes).values({ householdId: h.id, body })
-  refresh(careCode)
+  refresh()
 }
 
-export async function deleteCareNote(careCode: string, id: string) {
-  const h = await requireHousehold(careCode)
+export async function deleteCareNote(id: string) {
+  const h = await requireHousehold()
   await db
     .delete(careNotes)
     .where(and(eq(careNotes.id, id), eq(careNotes.householdId, h.id)))
-  refresh(careCode)
+  refresh()
 }

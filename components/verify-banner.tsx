@@ -3,13 +3,7 @@
 import { useTransition } from 'react'
 import { confirmPrescription } from '@/lib/actions'
 
-export function VerifyBanner({
-  code,
-  prescriptionDate,
-}: {
-  code: string
-  prescriptionDate: string
-}) {
+export function VerifyBanner({ prescriptionDate }: { prescriptionDate: string }) {
   const [pending, start] = useTransition()
 
   return (
@@ -25,7 +19,7 @@ export function VerifyBanner({
       <button
         type="button"
         disabled={pending}
-        onClick={() => start(() => confirmPrescription(code))}
+        onClick={() => start(() => confirmPrescription())}
         className="btn-danger mt-3 w-full sm:w-auto"
       >
         {pending ? 'Saving…' : 'I checked the new prescription'}

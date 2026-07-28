@@ -1,10 +1,9 @@
-import { notFound } from 'next/navigation'
 import { BpChart } from '@/components/bp-chart'
 import { PrintButton } from '@/components/print-button'
 import { bandOf, summarise } from '@/lib/bp'
+import { getHousehold } from '@/lib/household'
 import {
   buildDaySchedule,
-  findHousehold,
   getAllMedicines,
   getBpReadings,
   getCareNotes,
@@ -27,16 +26,12 @@ import {
 export const dynamic = 'force-dynamic'
 
 export default async function ReportPage({
-  params,
   searchParams,
 }: {
-  params: Promise<{ code: string }>
   searchParams: Promise<{ from?: string; to?: string }>
 }) {
-  const { code } = await params
   const sp = await searchParams
-  const household = await findHousehold(code)
-  if (!household) notFound()
+  const household = await getHousehold()
 
   const today = careDate()
   const isDate = (v?: string) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v)

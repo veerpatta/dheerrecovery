@@ -29,29 +29,43 @@ living in one browser's local storage.
 
 ## How access works
 
-There is no login. A **care code** in the URL (`/c/<CODE>`) is the credential —
-one private link opens the same record on every phone, matching how the
-original app's family sync worked. Codes are 20 characters of crypto-grade
-randomness from a 32-symbol alphabet (~100 bits), so they are not guessable,
-but anyone holding a link can read and write that family's record. Treat the
-link like a password.
+There is no login and nothing to enter. Opening the site lands straight on
+today's medicines for the one family record, which every caregiver's phone
+shares.
 
-Pages are `noindex, nofollow` and `force-dynamic` so nothing is cached or
-crawled.
+`lib/household.ts` decides which row that is, most specific first, so a fresh
+database still works and a populated one can never silently pick the wrong
+record:
+
+1. `PRIMARY_CARE_CODE`, if the env var is set.
+2. The record migrated from the original Sites app.
+3. The oldest household present.
+4. Otherwise a new one seeded from the prescription catalogue.
+
+The `care_code` column stays in the schema because the Sites migration keyed
+the imported record on it — dropping the column would strand that data. It is
+simply no longer part of the URL or the UI. Old `/c/<code>/…` links still
+resolve: everything under `/c/` permanently redirects to the same page at the
+top level.
+
+**Anyone who has the URL can read and write the record.** That is the
+trade-off for having no gate at all. Pages are `noindex, nofollow` and
+`force-dynamic`, so nothing is cached or crawled, but the address is the only
+thing standing between a stranger and the medical data.
 
 ## Routes
 
-| Route                    | Purpose                                                     |
-| ------------------------ | ----------------------------------------------------------- |
-| `/`                      | Create a new care record, or open one with an existing code |
-| `/c/[code]`              | Today — the 7 scheduled doses, Taken/Skip, BP snapshot      |
-| `/c/[code]/chart`        | Full medicine chart: 5 routine + 5 SOS, all clinical text   |
-| `/c/[code]/history`      | Dose ledger by date range, completion stats, exports        |
-| `/c/[code]/safety`       | Emergency numbers, the four safety rules, review questions  |
-| `/c/[code]/logs`         | BP intelligence, 14-day strip, seizure watch, notes         |
-| `/c/[code]/settings`     | Family sync link, alert lead time, reminder times           |
-| `/c/[code]/report`       | Printable multi-page doctor report (Save as PDF)            |
-| `/c/[code]/export/xlsx`  | Five-worksheet Excel export                                 |
+| Route            | Purpose                                                    |
+| ---------------- | ---------------------------------------------------------- |
+| `/`              | Today — the 7 scheduled doses, Taken/Skip, BP snapshot     |
+| `/chart`         | Full medicine chart: 5 routine + 5 SOS, all clinical text  |
+| `/history`       | Dose ledger by date range, completion stats, exports       |
+| `/safety`        | Emergency numbers, the four safety rules, review questions |
+| `/logs`          | BP intelligence, 14-day strip, seizure watch, notes        |
+| `/settings`      | Alert lead time, reminder times, add medicine              |
+| `/report`        | Printable multi-page doctor report (Save as PDF)           |
+| `/export/xlsx`   | Five-worksheet Excel export                                |
+| `/c/<code>/…`    | Permanent redirect to the equivalent path above            |
 
 ## Local development
 
@@ -104,7 +118,7 @@ blocked on many CI runners and sandboxes; it is still available as
    ```
    This goes over HTTPS, so it works from anywhere — including CI runners that
    block outbound Postgres on 5432.
-4. Deploy. Open the site, create a record, and save the care link.
+4. Deploy. Open the site — it lands straight on today's medicines.
 
 Use the **pooled** Neon connection string (`...-pooler...`) — serverless
 functions open many short-lived connections.
@@ -118,10 +132,11 @@ ENTRY_URL="https://dheerrecovery.vercel.app/" node scripts/live-check.mjs
 ```
 
 `scripts/smoke.mjs` drives a real browser through the whole app on a 420px
-viewport: creating a record, verifying the prescription, marking a dose taken,
-undoing it, the SOS drawer, every tab, logging BP and seizures and notes,
-editing a reminder time, the printable report, the Excel download, and a 404
-for an unknown code. It also fails the run on any console error or failed
+viewport, starting from an empty database: opening straight onto today,
+verifying the prescription, marking a dose taken, undoing it, the SOS drawer,
+every tab, logging BP and seizures and notes, editing a reminder time, the
+printable report, the Excel download, a legacy `/c/<code>/` redirect, and a
+404 for an unknown path. It also fails the run on any console error or failed
 request.
 
 `scripts/live-check.mjs` runs a shorter version of the same flow against a

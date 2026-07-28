@@ -39,7 +39,11 @@ export async function findHousehold(careCode: string): Promise<Household | null>
 
 /**
  * Create a household pre-loaded with the 28 July 2026 prescription.
- * Idempotent on care code.
+ *
+ * Safe to call concurrently. On a first visit to an empty database, Next
+ * prefetches the nav links, so several requests race to seed at once — each
+ * insert defers to whichever request won, rather than failing on the unique
+ * index and throwing a caregiver into the error boundary.
  */
 export async function createHousehold(careCode: string): Promise<Household> {
   const existing = await findHousehold(careCode)
@@ -55,7 +59,15 @@ export async function createHousehold(careCode: string): Promise<Household> {
       prescriberName: PRESCRIBER,
       courseStart: PRESCRIPTION_DATE,
     })
+    .onConflictDoNothing({ target: households.careCode })
     .returning()
+
+  // Another request inserted it between the lookup and the insert.
+  if (!household) {
+    const raced = await findHousehold(careCode)
+    if (raced) return raced
+    throw new Error('Could not open the care record. Try again.')
+  }
 
   const inserted = await db
     .insert(medicines)
@@ -85,19 +97,29 @@ export async function createHousehold(careCode: string): Promise<Household> {
         sortOrder: i,
       })),
     )
+    .onConflictDoNothing({
+      target: [medicines.householdId, medicines.catalogId],
+    })
     .returning({ id: medicines.id, catalogId: medicines.catalogId })
 
   const byCatalogId = new Map(inserted.map((r) => [r.catalogId, r.id]))
-  const slotRows = CATALOG.flatMap((m) =>
-    m.slots.map((s, i) => ({
-      medicineId: byCatalogId.get(m.id)!,
+  const slotRows = CATALOG.flatMap((m) => {
+    const medicineId = byCatalogId.get(m.id)
+    if (!medicineId) return [] // seeded by a concurrent request
+    return m.slots.map((s, i) => ({
+      medicineId,
       slotKey: s.key,
       time: s.time,
       label: s.label,
       sortOrder: i,
-    })),
-  )
-  if (slotRows.length) await db.insert(doseSlots).values(slotRows)
+    }))
+  })
+  if (slotRows.length) {
+    await db
+      .insert(doseSlots)
+      .values(slotRows)
+      .onConflictDoNothing({ target: [doseSlots.medicineId, doseSlots.slotKey] })
+  }
 
   return household
 }

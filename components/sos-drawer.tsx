@@ -16,13 +16,7 @@ const STATUS_LABEL: Record<string, string> = {
   supportive: 'Supportive care',
 }
 
-export function SosDrawer({
-  code,
-  medicines,
-}: {
-  code: string
-  medicines: MedicineWithSlots[]
-}) {
+export function SosDrawer({ medicines }: { medicines: MedicineWithSlots[] }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -46,7 +40,7 @@ export function SosDrawer({
     setBusy(medicineId)
     start(async () => {
       try {
-        await logSosDose(code, { medicineId })
+        await logSosDose({ medicineId })
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not save that.')
       } finally {

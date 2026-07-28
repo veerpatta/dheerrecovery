@@ -1,4 +1,3 @@
-import { notFound } from 'next/navigation'
 import { BpChart } from '@/components/bp-chart'
 import {
   BandForm,
@@ -8,8 +7,8 @@ import {
   SeizureForm,
 } from '@/components/log-forms'
 import { bandOf, classify, summarise } from '@/lib/bp'
+import { getHousehold } from '@/lib/household'
 import {
-  findHousehold,
   getBpReadings,
   getCareNotes,
   getSeizureEvents,
@@ -21,16 +20,12 @@ export const dynamic = 'force-dynamic'
 const WINDOWS = [7, 14, 30] as const
 
 export default async function LogsPage({
-  params,
   searchParams,
 }: {
-  params: Promise<{ code: string }>
   searchParams: Promise<{ days?: string }>
 }) {
-  const { code } = await params
   const sp = await searchParams
-  const household = await findHousehold(code)
-  if (!household) notFound()
+  const household = await getHousehold()
 
   const days = WINDOWS.includes(Number(sp.days) as (typeof WINDOWS)[number])
     ? Number(sp.days)
@@ -68,11 +63,12 @@ export default async function LogsPage({
           Record useful information for the doctor
         </h1>
         <p className="mt-1.5 text-sm leading-relaxed text-muted">
-          Saved to the private family record protected by your sync code.
+          Saved to the shared family record — visible on every caregiver’s
+          phone straight away.
         </p>
       </section>
 
-      <BpForm code={code} band={band} />
+      <BpForm band={band} />
 
       <section className="card space-y-4">
         <div>
@@ -124,7 +120,7 @@ export default async function LogsPage({
           {WINDOWS.map((d) => (
             <a
               key={d}
-              href={`/c/${code}/logs?days=${d}`}
+              href={`/logs?days=${d}`}
               className={`pill border ${
                 d === days
                   ? 'border-navy bg-navy text-white'
@@ -226,7 +222,7 @@ export default async function LogsPage({
                         </p>
                       ) : null}
                     </div>
-                    <DeleteButton code={code} id={r.id} kind="bp" />
+                    <DeleteButton id={r.id} kind="bp" />
                   </li>
                 )
               })}
@@ -248,7 +244,6 @@ export default async function LogsPage({
           </p>
           <div className="mt-2">
             <BandForm
-              code={code}
               band={{ ...band, confirmed: household.bandConfirmed }}
             />
           </div>
@@ -260,7 +255,7 @@ export default async function LogsPage({
           <p className="eyebrow">⌁ Seizure watch</p>
           <h2 className="mt-1 text-base font-bold text-navy">Seizure event</h2>
         </div>
-        <SeizureForm code={code} />
+        <SeizureForm />
         {seizures.length ? (
           <ul className="space-y-2">
             {seizures.map((s) => (
@@ -286,7 +281,7 @@ export default async function LogsPage({
                     </p>
                   ) : null}
                 </div>
-                <DeleteButton code={code} id={s.id} kind="seizure" />
+                <DeleteButton id={s.id} kind="seizure" />
               </li>
             ))}
           </ul>
@@ -300,7 +295,7 @@ export default async function LogsPage({
           <p className="eyebrow">✎ Caregiver notes</p>
           <h2 className="mt-1 text-base font-bold text-navy">Daily observations</h2>
         </div>
-        <NoteForm code={code} />
+        <NoteForm />
         {notes.length ? (
           <ul className="space-y-2">
             {notes.map((n) => (
@@ -314,7 +309,7 @@ export default async function LogsPage({
                     {n.body}
                   </p>
                 </div>
-                <DeleteButton code={code} id={n.id} kind="note" />
+                <DeleteButton id={n.id} kind="note" />
               </li>
             ))}
           </ul>
@@ -324,8 +319,8 @@ export default async function LogsPage({
       </section>
 
       <p className="px-1 pb-2 text-xs leading-relaxed text-muted">
-        Shared caregiver record. Anyone opening the private caregiver link can view
-        and edit these records. Treat that link like a password.
+        Shared caregiver record. Anyone who opens this site can view and edit
+        these records.
       </p>
     </>
   )

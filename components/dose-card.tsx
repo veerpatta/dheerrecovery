@@ -20,7 +20,6 @@ const STATUS_PILL: Record<DoseStatus, { label: string; className: string }> = {
 }
 
 export interface DoseCardProps {
-  code: string
   doseDate: string
   medicineId: string
   brand: string
@@ -44,7 +43,7 @@ export function DoseCard(props: DoseCardProps) {
     setError(null)
     start(async () => {
       try {
-        await recordDose(props.code, {
+        await recordDose({
           medicineId: props.medicineId,
           slotKey: props.slotKey,
           doseDate: props.doseDate,

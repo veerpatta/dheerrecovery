@@ -5,11 +5,9 @@ import { addCustomMedicine, updateSettings, updateSlotTime } from '@/lib/actions
 import { prettyTime } from '@/lib/time'
 
 export function SettingsForm({
-  code,
   alertLeadMinutes,
   courseStart,
 }: {
-  code: string
   alertLeadMinutes: number
   courseStart: string
 }) {
@@ -20,7 +18,7 @@ export function SettingsForm({
     <form
       action={(fd) =>
         start(async () => {
-          await updateSettings(code, fd)
+          await updateSettings(fd)
           setSaved(true)
           setTimeout(() => setSaved(false), 2000)
         })
@@ -69,14 +67,12 @@ export function SettingsForm({
 }
 
 export function SlotTimeRow({
-  code,
   slotId,
   brand,
   label,
   time,
   editable,
 }: {
-  code: string
   slotId: string
   brand: string
   label: string
@@ -92,7 +88,7 @@ export function SlotTimeRow({
     setError(null)
     start(async () => {
       try {
-        await updateSlotTime(code, { slotId, time: next })
+        await updateSlotTime({ slotId, time: next })
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not save that.')
       }
@@ -124,7 +120,7 @@ export function SlotTimeRow({
   )
 }
 
-export function AddMedicineForm({ code }: { code: string }) {
+export function AddMedicineForm() {
   const form = useRef<HTMLFormElement>(null)
   const [pending, start] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -137,7 +133,7 @@ export function AddMedicineForm({ code }: { code: string }) {
         start(async () => {
           setError(null)
           try {
-            await addCustomMedicine(code, fd)
+            await addCustomMedicine(fd)
             form.current?.reset()
           } catch (e) {
             setError(e instanceof Error ? e.message : 'Could not save that.')

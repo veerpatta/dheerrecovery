@@ -1,23 +1,16 @@
-import { notFound } from 'next/navigation'
 import { ReminderRunner } from '@/components/reminders'
 import {
   AddMedicineForm,
   SettingsForm,
   SlotTimeRow,
 } from '@/components/settings-forms'
-import { SyncCard } from '@/components/sync-card'
-import { findHousehold, getMedicines } from '@/lib/queries'
+import { getHousehold } from '@/lib/household'
+import { getMedicines } from '@/lib/queries'
 
 export const dynamic = 'force-dynamic'
 
-export default async function SettingsPage({
-  params,
-}: {
-  params: Promise<{ code: string }>
-}) {
-  const { code } = await params
-  const household = await findHousehold(code)
-  if (!household) notFound()
+export default async function SettingsPage() {
+  const household = await getHousehold()
 
   const meds = await getMedicines(household.id)
   const routine = meds.filter((m) => m.kind === 'routine')
@@ -39,11 +32,13 @@ export default async function SettingsPage({
       <section className="card">
         <p className="eyebrow">Caregiver setup</p>
         <h1 className="mt-1 text-xl font-bold tracking-tight text-navy">
-          Sync, times &amp; alerts
+          Times &amp; alerts
         </h1>
+        <p className="mt-1.5 text-sm leading-relaxed text-muted">
+          The app opens straight onto this record on every phone — nothing to
+          set up, no code to share.
+        </p>
       </section>
-
-      <SyncCard code={code} />
 
       <section className="card space-y-3">
         <div>
@@ -58,7 +53,6 @@ export default async function SettingsPage({
         </div>
 
         <SettingsForm
-          code={code}
           alertLeadMinutes={household.alertLeadMinutes}
           courseStart={household.courseStart}
         />
@@ -86,12 +80,12 @@ export default async function SettingsPage({
         </div>
         <ul className="space-y-2">
           {slots.map((s) => (
-            <SlotTimeRow key={s.id} code={code} slotId={s.id} {...s} />
+            <SlotTimeRow key={s.id} slotId={s.id} {...s} />
           ))}
         </ul>
       </section>
 
-      <AddMedicineForm code={code} />
+      <AddMedicineForm />
     </>
   )
 }

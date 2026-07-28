@@ -1,5 +1,4 @@
-import { notFound } from 'next/navigation'
-import { findHousehold } from '@/lib/queries'
+import { getHousehold } from '@/lib/household'
 import {
   EMERGENCY_CONTACTS,
   EMERGENCY_TRIGGER,
@@ -11,14 +10,8 @@ import { addDays, careDate, daysBetween, prettyDate, prettyRxDate } from '@/lib/
 
 export const dynamic = 'force-dynamic'
 
-export default async function SafetyPage({
-  params,
-}: {
-  params: Promise<{ code: string }>
-}) {
-  const { code } = await params
-  const household = await findHousehold(code)
-  if (!household) notFound()
+export default async function SafetyPage() {
+  const household = await getHousehold()
 
   const supplyEnds = addDays(household.courseStart, 30)
   const daysLeft = daysBetween(careDate(), supplyEnds)
