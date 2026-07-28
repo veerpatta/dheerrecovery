@@ -311,6 +311,26 @@ export const SOS = CATALOG.filter((m) => m.kind === 'sos')
 /** Total scheduled doses in one day — 7 for this prescription. */
 export const DAILY_DOSE_COUNT = ROUTINE.reduce((n, m) => n + m.slots.length, 0)
 
+/** The prescription is written for one month. */
+export const SUPPLY_DAYS = 30
+
+/**
+ * Active ingredient per single dose, keyed by `catalogId`. Used only to total
+ * up what was actually recorded as taken, so a doctor can see intake at a
+ * glance. Caregiver-added medicines have no entry — their intake card shows
+ * the dose count without a salt breakdown rather than disappearing.
+ */
+export const SALTS: Record<string, { name: string; mg: number }[]> = {
+  pantocid: [
+    { name: 'Pantoprazole', mg: 40 },
+    { name: 'Domperidone', mg: 30 },
+  ],
+  lacoset: [{ name: 'Lacosamide', mg: 100 }],
+  valprol: [{ name: 'Sodium valproate', mg: 500 }],
+  betacap: [{ name: 'Propranolol', mg: 40 }],
+  tryptomer: [{ name: 'Amitriptyline', mg: 10 }],
+}
+
 export const EMERGENCY_CONTACTS = [
   { label: 'Emergency reception', phone: '+91 91161 44111' },
   { label: 'Ambulance', phone: '+91 91161 44001' },

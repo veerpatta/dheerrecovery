@@ -12,6 +12,12 @@ export const STRINGS = {
   historyExport: { en: 'History & export', hi: 'इतिहास और निर्यात' },
   safety: { en: 'Safety', hi: 'सुरक्षा' },
   recoveryLogs: { en: 'Recovery logs', hi: 'रिकवरी रिकॉर्ड' },
+
+  // Short forms for the bottom tab bar — five labels share 430px, so the
+  // long-form names above do not fit without wrapping.
+  tabChart: { en: 'Chart', hi: 'चार्ट' },
+  tabLogs: { en: 'Logs', hi: 'रिकॉर्ड' },
+  tabHistory: { en: 'History', hi: 'इतिहास' },
   timesAlerts: { en: 'Times & alerts', hi: 'समय और अलर्ट' },
   taken: { en: 'Taken', hi: 'ले ली' },
   skip: { en: 'Skip', hi: 'छोड़ें' },

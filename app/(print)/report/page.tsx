@@ -152,7 +152,7 @@ export default async function ReportPage({
           Home reference band {band.systolicLow}/{band.diastolicLow}–
           {band.systolicHigh}/{band.diastolicHigh}.
         </p>
-        <BpChart readings={rangeReadings} band={band} height={200} />
+        <BpChart readings={rangeReadings} band={band} width={640} height={200} />
         {rangeReadings.length ? (
           <table className="w-full text-left text-xs">
             <thead>

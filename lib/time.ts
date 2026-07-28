@@ -135,11 +135,16 @@ export function driftMinutes(
   )
 }
 
-export function formatDrift(mins: number): string {
-  if (mins === 0) return 'on time'
-  const abs = Math.abs(mins)
+/** "75" -> "1h 15m". Bare minutes past an hour read as noise. */
+export function formatGap(mins: number): string {
+  const abs = Math.abs(Math.round(mins))
+  if (abs === 0) return '0m'
   const h = Math.floor(abs / 60)
   const m = abs % 60
-  const parts = [h ? `${h}h` : '', m ? `${m}m` : ''].filter(Boolean).join(' ')
-  return `${mins > 0 ? '+' : '−'}${parts} ${mins > 0 ? 'late' : 'early'}`
+  return [h ? `${h}h` : '', m ? `${m}m` : ''].filter(Boolean).join(' ')
+}
+
+export function formatDrift(mins: number): string {
+  if (mins === 0) return 'on time'
+  return `${mins > 0 ? '+' : '−'}${formatGap(mins)} ${mins > 0 ? 'late' : 'early'}`
 }

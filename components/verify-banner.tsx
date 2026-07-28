@@ -1,26 +1,27 @@
 'use client'
 
-import { useTransition } from 'react'
 import { confirmPrescription } from '@/lib/actions'
+import { useChrome } from './chrome'
 
 export function VerifyBanner({ prescriptionDate }: { prescriptionDate: string }) {
-  const [pending, start] = useTransition()
+  const { run, pending } = useChrome()
 
   return (
-    <section className="card border-coral/30 bg-coral-soft no-print">
+    <section className="flex flex-col gap-2 rounded-2xl border border-coral/30 bg-coral-soft p-4 no-print">
       <p className="eyebrow text-coral">Verify before first use</p>
-      <h2 className="mt-1 text-base font-bold text-navy">
+      <p className="text-sm font-bold text-navy">
         Match all six medicines to the new prescription
-      </h2>
-      <p className="mt-1.5 text-sm leading-relaxed text-ink/80">
+      </p>
+      <p className="text-[12.5px] leading-relaxed text-ink/80">
         Check each strip against the {prescriptionDate} prescription. Reminder times
         are an organiser; only Betacap’s 8:00 AM time is explicitly printed.
       </p>
       <button
         type="button"
         disabled={pending}
-        onClick={() => start(() => confirmPrescription())}
-        className="btn-danger mt-3 w-full sm:w-auto"
+        aria-label="I checked the new prescription"
+        onClick={() => run(() => confirmPrescription(), 'Prescription verified ✓')}
+        className="btn-danger h-11 w-full"
       >
         {pending ? 'Saving…' : 'I checked the new prescription'}
       </button>

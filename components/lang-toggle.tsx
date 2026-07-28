@@ -24,10 +24,19 @@ export function LangToggle() {
     <button
       type="button"
       onClick={toggle}
-      className="rounded-full border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink"
+      className="shrink-0 rounded-full border border-line bg-white px-2.5 py-1.5 text-[11px] font-bold text-ink transition active:scale-95"
       aria-label={lang === 'en' ? 'हिंदी में देखें' : 'View in English'}
     >
-      {lang === 'en' ? 'हिंदी' : 'English'}
+      {/*
+        Both labels are rendered and CSS picks one, so the button does not
+        flip a frame after hydration on a Hindi caregiver's phone.
+      */}
+      <span className="lang-en" aria-hidden>
+        हिं
+      </span>
+      <span className="lang-hi" aria-hidden>
+        EN
+      </span>
     </button>
   )
 }

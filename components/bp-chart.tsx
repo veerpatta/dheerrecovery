@@ -1,18 +1,23 @@
 import type { BpReading } from '@/db/schema'
 import type { Band } from '@/lib/bp'
-import { shortDay } from '@/lib/time'
+import { careDate, shortDay } from '@/lib/time'
 
 /**
  * Plain inline SVG: no chart library, no client JS, prints correctly in the
  * doctor report. Readings are expected newest-first.
+ *
+ * The default geometry is the design's 352x170, which fits the 430px column.
+ * The printed report passes a wider box.
  */
 export function BpChart({
   readings,
   band,
-  height = 180,
+  width = 352,
+  height = 170,
 }: {
   readings: BpReading[]
   band: Band
+  width?: number
   height?: number
 }) {
   const points = [...readings]
@@ -21,23 +26,25 @@ export function BpChart({
       t: +new Date(r.measuredAt),
       sys: r.systolic,
       dia: r.diastolic,
-      label: shortDay(new Date(r.measuredAt).toISOString().slice(0, 10)),
+      // The care date, not the UTC date — an evening reading is otherwise
+      // labelled with tomorrow.
+      label: shortDay(careDate(new Date(r.measuredAt))),
     }))
 
   if (points.length < 2) {
     return (
-      <div className="flex h-40 items-center justify-center rounded-xl bg-paper text-sm text-muted">
+      <div className="flex h-30 items-center justify-center rounded-xl bg-paper px-4 text-center text-[12.5px] text-muted">
         Log at least two readings to begin the trend chart.
       </div>
     )
   }
 
-  const W = 640
+  const W = width
   const H = height
-  const padL = 34
-  const padR = 10
-  const padT = 12
-  const padB = 24
+  const padL = 30
+  const padR = 8
+  const padT = 10
+  const padB = 22
 
   const allValues = points.flatMap((p) => [p.sys, p.dia])
   const yMin = Math.min(band.diastolicLow, ...allValues) - 8
@@ -51,12 +58,14 @@ export function BpChart({
     padT + (1 - (v - yMin) / Math.max(1, yMax - yMin)) * (H - padT - padB)
 
   const path = (key: 'sys' | 'dia') =>
-    points.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p[key]).toFixed(1)}`).join(' ')
+    points
+      .map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p[key]).toFixed(1)}`)
+      .join(' ')
 
   const gridValues = [yMin, (yMin + yMax) / 2, yMax].map(Math.round)
 
   return (
-    <figure className="space-y-2">
+    <figure className="flex flex-col gap-1.5">
       <svg
         viewBox={`0 0 ${W} ${H}`}
         className="h-auto w-full"
@@ -81,7 +90,7 @@ export function BpChart({
               stroke="#dde5e2"
               strokeWidth="1"
             />
-            <text x={4} y={y(v) + 4} fontSize="10" fill="#66748b">
+            <text x={2} y={y(v) + 4} fontSize="10" fill="#66748b">
               {v}
             </text>
           </g>
@@ -105,7 +114,7 @@ export function BpChart({
         </text>
       </svg>
 
-      <figcaption className="flex flex-wrap gap-4 text-xs text-muted">
+      <figcaption className="flex flex-wrap gap-3.5 text-[11px] text-muted">
         <span className="flex items-center gap-1.5">
           <span className="h-1 w-4 rounded bg-coral" aria-hidden /> Systolic
         </span>

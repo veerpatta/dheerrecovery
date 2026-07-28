@@ -1,5 +1,11 @@
+/*
+ * Imported by the BP entry sheet as well as the server pages, so the band
+ * preview can be classified as the caregiver types. Keep the schema import a
+ * `import type` and never add `server-only` here, or drizzle and pg get pulled
+ * into the client bundle.
+ */
 import type { BpReading, Household } from '@/db/schema'
-import { careDate, daysBetween } from './time'
+import { addDays, careClock, careDate, daysBetween } from './time'
 
 export interface Band {
   systolicLow: number
@@ -17,7 +23,11 @@ export function bandOf(h: Household): Band {
   }
 }
 
-export function classify(r: BpReading, band: Band): 'high' | 'low' | 'in-band' {
+/** Widened to a bare pair so an in-progress keypad draft can be classified. */
+export function classify(
+  r: Pick<BpReading, 'systolic' | 'diastolic'>,
+  band: Band,
+): 'high' | 'low' | 'in-band' {
   if (r.systolic > band.systolicHigh || r.diastolic > band.diastolicHigh) return 'high'
   if (r.systolic < band.systolicLow || r.diastolic < band.diastolicLow) return 'low'
   return 'in-band'
@@ -28,6 +38,12 @@ export interface BpSummary {
   count: number
   avgSystolic: number | null
   avgDiastolic: number | null
+  /**
+   * The readings the averages were actually computed from. Pages must list
+   * these rather than re-filtering by elapsed milliseconds — the window here
+   * is care-date day boundaries, so the two disagree around midnight IST.
+   */
+  windowReadings: BpReading[]
   windowCount: number
   priorAvgSystolic: number | null
   priorAvgDiastolic: number | null
@@ -84,6 +100,7 @@ export function summarise(
     count: readings.length,
     avgSystolic: avgSys,
     avgDiastolic: avgDia,
+    windowReadings: inWindow,
     windowCount: inWindow.length,
     priorAvgSystolic: priorSys,
     priorAvgDiastolic: priorDia,
@@ -92,6 +109,45 @@ export function summarise(
     pairedSessions: paired,
     observations: observe(inWindow, priorWindow, band, avgSys, priorSys),
   }
+}
+
+export interface StripDay {
+  isoDate: string
+  /** Day of month, the label the design prints. */
+  day: string
+  count: number
+  worst: 'high' | 'low' | 'in-band' | 'none'
+}
+
+/**
+ * One cell per day for the design's 14-day strip. A day is coloured by its
+ * worst reading, so a single high reading is never averaged out of sight.
+ */
+export function bpStrip(
+  readings: BpReading[],
+  band: Band,
+  days = 14,
+  now: Date = new Date(),
+): StripDay[] {
+  const today = careDate(now)
+  const byDate = new Map<string, BpReading[]>()
+  for (const r of readings) {
+    const key = careDate(new Date(r.measuredAt))
+    byDate.set(key, [...(byDate.get(key) ?? []), r])
+  }
+
+  return Array.from({ length: days }, (_, i) => {
+    const isoDate = addDays(today, -(days - 1 - i))
+    const day = byDate.get(isoDate) ?? []
+    const worst = day.some((r) => classify(r, band) === 'high')
+      ? 'high'
+      : day.some((r) => classify(r, band) === 'low')
+        ? 'low'
+        : day.length
+          ? 'in-band'
+          : 'none'
+    return { isoDate, day: isoDate.slice(-2), count: day.length, worst }
+  })
 }
 
 /**
@@ -124,8 +180,11 @@ function observe(
     }
   }
 
-  const morning = window.filter((r) => new Date(r.measuredAt).getUTCHours() + 5.5 < 12)
-  const evening = window.filter((r) => new Date(r.measuredAt).getUTCHours() + 5.5 >= 12)
+  // The care-timezone hour, not UTC+5.5 truncated to whole hours — the old
+  // arithmetic ignored minutes and misfiled readings taken around 06:30 UTC.
+  const istHour = (r: BpReading) => Number(careClock(new Date(r.measuredAt)).slice(0, 2))
+  const morning = window.filter((r) => istHour(r) < 12)
+  const evening = window.filter((r) => istHour(r) >= 12)
   const mSys = avg(morning.map((r) => r.systolic))
   const eSys = avg(evening.map((r) => r.systolic))
   if (mSys != null && eSys != null && Math.abs(mSys - eSys) >= 8) {

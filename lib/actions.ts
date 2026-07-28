@@ -14,7 +14,7 @@ import {
   seizureEvents,
 } from '@/db/schema'
 import { getHousehold } from './household'
-import { careDate } from './time'
+import { careDate, careInstant } from './time'
 
 /** The app serves one record, so every write resolves it the same way. */
 async function requireHousehold() {
@@ -54,6 +54,23 @@ export async function updateSettings(formData: FormData) {
       courseStart: /^\d{4}-\d{2}-\d{2}$/.test(courseStart) ? courseStart : h.courseStart,
       updatedAt: new Date(),
     })
+    .where(eq(households.id, h.id))
+  refresh()
+}
+
+/**
+ * The design's alert-speed chips save on tap, with no submit button. This is
+ * deliberately narrower than `updateSettings`, which also writes `courseStart`
+ * — driving that from a chip would clobber the course start date.
+ */
+export async function updateAlertLead(input: { minutes: number }) {
+  const h = await requireHousehold()
+  if (![5, 10, 15].includes(input.minutes)) {
+    throw new Error('Choose 5, 10 or 15 minutes.')
+  }
+  await db
+    .update(households)
+    .set({ alertLeadMinutes: input.minutes, updatedAt: new Date() })
     .where(eq(households.id, h.id))
   refresh()
 }
@@ -160,6 +177,76 @@ export async function recordDose(
 
   refresh()
   return { cleared: false }
+}
+
+/**
+ * Retime a dose that is already recorded as taken — the "Taken at — adjust if
+ * logging later" input on the dose card.
+ *
+ * This cannot go through `recordDose`: re-sending `status: 'taken'` for a row
+ * that is already `taken` deletes it, because that is how Undo works. Doing
+ * that here would look like correcting the time erased the dose.
+ */
+export async function setDoseTakenAt(input: {
+  medicineId: string
+  slotKey: string
+  doseDate: string
+  time: string
+}) {
+  const h = await requireHousehold()
+  if (!/^\d{2}:\d{2}$/.test(input.time)) throw new Error('Choose a valid dose time.')
+
+  const takenAt = careInstant(input.doseDate, input.time)
+  if (Number.isNaN(takenAt.getTime())) throw new Error('Choose a valid dose time.')
+  if (takenAt.getTime() > Date.now() + 60_000) {
+    throw new Error('Dose time cannot be in the future.')
+  }
+
+  const [existing] = await db
+    .select()
+    .from(doseRecords)
+    .where(
+      and(
+        eq(doseRecords.householdId, h.id),
+        eq(doseRecords.medicineId, input.medicineId),
+        eq(doseRecords.slotKey, input.slotKey),
+        eq(doseRecords.doseDate, input.doseDate),
+      ),
+    )
+    .limit(1)
+
+  if (!existing) throw new Error('Mark the dose as taken before setting a time.')
+  if (existing.status !== 'taken') throw new Error('Only a taken dose has a time.')
+
+  await db.update(doseRecords).set({ takenAt }).where(eq(doseRecords.id, existing.id))
+  refresh()
+}
+
+/**
+ * Remove a caregiver-added medicine.
+ *
+ * A soft delete, always. `doseRecords.medicineId` cascades on delete, so
+ * removing the row would silently erase every dose already logged against it.
+ * Archiving hides it from Today and the SOS sheet while `getAllMedicines`
+ * keeps history, the report and the Excel export whole.
+ */
+export async function archiveMedicine(input: { medicineId: string }) {
+  const h = await requireHousehold()
+  const [medicine] = await db
+    .select()
+    .from(medicines)
+    .where(and(eq(medicines.id, input.medicineId), eq(medicines.householdId, h.id)))
+    .limit(1)
+  if (!medicine) throw new Error('Medicine not found in this record.')
+  if (!medicine.isCustom) {
+    throw new Error('Prescribed medicines cannot be removed from the chart.')
+  }
+
+  await db
+    .update(medicines)
+    .set({ archivedAt: new Date() })
+    .where(eq(medicines.id, medicine.id))
+  refresh()
 }
 
 /** SOS doses sit outside the schedule and are always appended, never toggled. */

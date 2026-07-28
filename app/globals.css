@@ -2,6 +2,7 @@
 
 /* Palette carried over from the original Dheer Recovery organiser. */
 @theme {
+  --color-shell: #dfe5e2;
   --color-paper: #f6f8f6;
   --color-white: #ffffff;
   --color-ink: #16243b;
@@ -9,7 +10,9 @@
   --color-muted: #66748b;
   --color-line: #dde5e2;
   --color-teal: #29a997;
+  --color-teal-deep: #1f8a7b;
   --color-mint: #e7f5f1;
+  --color-sage: #c3d5d0;
   --color-coral: #ee6956;
   --color-coral-soft: #fff0eb;
   --color-amber: #d7972c;
@@ -17,38 +20,65 @@
   --color-violet: #8069b0;
 
   --font-sans:
-    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    var(--font-inter), var(--font-devanagari), ui-sans-serif, -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
-  --shadow-card: 0 18px 60px #192d3917;
+  --shadow-shell: 0 18px 60px #192d3917;
   --shadow-soft: 0 2px 10px #192d390d;
+
+  /* The design is a 430px phone. Everything wider is backdrop. */
+  --shell-width: 430px;
 }
 
 html {
-  background: var(--color-paper);
+  background: var(--color-shell);
   color: var(--color-ink);
   -webkit-text-size-adjust: 100%;
 }
 
 body {
   font-family: var(--font-sans);
-  /* Room for the fixed bottom action bar on phones. */
-  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* Tap targets stay comfortable for someone dosing in a hurry. */
 button,
 a {
   touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  color: var(--color-teal);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--color-teal-deep);
 }
 
 @layer components {
   .card {
-    @apply rounded-2xl border border-line bg-white p-5;
+    @apply rounded-2xl border border-line bg-white p-4;
     box-shadow: var(--shadow-soft);
+  }
+
+  /* A card with a 4px tone spine down its left edge. */
+  .card-toned {
+    @apply relative overflow-hidden rounded-2xl border border-line bg-white;
+    box-shadow: var(--shadow-soft);
+  }
+  .card-toned > .spine {
+    @apply absolute top-0 bottom-0 left-0 w-1;
   }
 
   .eyebrow {
     @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-muted;
+  }
+
+  .note {
+    @apply rounded-xl bg-paper px-3 py-2.5 text-xs leading-relaxed text-ink/85;
+  }
+  .note-warn {
+    @apply rounded-xl bg-coral-soft px-3 py-2.5 text-xs leading-relaxed text-ink;
   }
 
   /*
@@ -59,12 +89,12 @@ a {
   .btn-primary,
   .btn-ghost,
   .btn-danger {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5
-           text-sm font-semibold transition
-           disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3
+           text-sm font-bold transition active:scale-[0.97]
+           disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100;
   }
   .btn-primary {
-    @apply bg-teal text-white hover:brightness-95 active:brightness-90;
+    @apply bg-teal text-white hover:brightness-95;
   }
   .btn-ghost {
     @apply border border-line bg-white text-ink hover:bg-paper;
@@ -81,8 +111,78 @@ a {
 
   .pill {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1
-           text-[11px] font-semibold uppercase tracking-wide;
+           text-[10.5px] font-bold uppercase tracking-[0.04em];
   }
+
+  /* Chip row used by the 7/14/30 window and range selectors. */
+  .chip {
+    @apply rounded-full border border-line bg-white px-3.5 py-1.5
+           text-[11.5px] font-bold text-muted transition active:scale-95;
+  }
+  .chip-on {
+    @apply rounded-full border border-navy bg-navy px-3.5 py-1.5
+           text-[11.5px] font-bold text-white transition active:scale-95;
+  }
+}
+
+/* Bottom sheets and the toast, straight from the design. */
+@keyframes sheetUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+.animate-sheet-up {
+  animation: sheetUp 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.animate-fade-in {
+  animation: fadeIn 0.2s ease;
+}
+.animate-toast-in {
+  animation: toastIn 0.25s ease;
+}
+
+/* Scroll regions inside the shell hide their bars, as a native app would. */
+.noscroll {
+  scrollbar-width: none;
+}
+.noscroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* <details> disclosures with a rotating chevron. */
+summary {
+  cursor: pointer;
+  list-style: none;
+}
+summary::-webkit-details-marker {
+  display: none;
+}
+.chev {
+  transition: transform 0.2s;
+}
+details[open] .chev {
+  transform: rotate(180deg);
 }
 
 /*
@@ -100,7 +200,11 @@ html[data-lang='hi'] .lang-hi {
   display: inline;
 }
 
-/* The doctor report is a real printed document, not a screenshot. */
+/*
+ * The doctor report is a real printed document, not a screenshot. It renders
+ * outside the phone shell (app/(print)), but these rules also flatten the
+ * shell in case anything chromed is ever sent to a printer.
+ */
 @media print {
   .no-print {
     display: none !important;
@@ -109,10 +213,16 @@ html[data-lang='hi'] .lang-hi {
   body {
     background: #fff;
   }
+  .shell {
+    max-width: none !important;
+    box-shadow: none !important;
+    padding-bottom: 0 !important;
+  }
   .print-page {
     break-after: page;
   }
-  .card {
+  .card,
+  .card-toned {
     box-shadow: none;
     border-color: #cbd5cf;
   }

@@ -67,10 +67,8 @@ for (const med of [
   check(`today lists ${med}`, body.includes(med))
 }
 check('7 scheduled doses', /0\/7 taken/.test(body), body.match(/\d+\/\d+ taken/)?.[0])
-check(
-  'prescription header',
-  body.includes('Dr Ajit Singh') && body.includes('28 July 2026'),
-)
+check('prescription date on today', body.includes('28 July 2026'))
+check('bottom nav present', (await page.locator('nav a[href="/logs"]').count()) === 1)
 await page.screenshot({ path: `${shots}/01-today.png`, fullPage: true })
 
 // 2. Verify banner
@@ -100,6 +98,7 @@ const sosText = await page.locator('[role=dialog]').innerText()
 for (const m of ['Napra‑D 500/10', 'Zytee Gel LA', 'Dolo', 'Looz syrup', 'ORS / safe fluids']) {
   check(`sos lists ${m}`, sosText.includes(m))
 }
+await page.waitForTimeout(600) // let the sheet finish sliding up
 await page.screenshot({ path: `${shots}/02-sos.png` })
 await page.keyboard.press('Escape')
 await page.waitForTimeout(500)
@@ -126,14 +125,23 @@ check(
 )
 check('safety rules', safetyText.includes('Never double a missed dose'))
 
-// 8. BP
+// 8. BP — entered on the keypad sheet, one tap per digit
 await page.goto(`${BASE}/logs`, { waitUntil: 'networkidle' })
+const typePad = async (value) => {
+  for (const ch of String(value)) await page.click(`[data-bp-key="${ch}"]`)
+}
 for (const [s, d, p] of [[126, 82, 74], [122, 79, 72], [148, 94, 88]]) {
-  await page.fill('input[name=systolic]', String(s))
-  await page.fill('input[name=diastolic]', String(d))
-  await page.fill('input[name=pulse]', String(p))
-  await page.getByRole('button', { name: /Save BP/i }).click()
+  await page.getByRole('button', { name: /^Log BP$/ }).first().click()
+  await page.waitForSelector('[data-bp-key="1"]')
+  await typePad(s)
+  await page.click('[data-bp-field="diastolic"]')
+  await typePad(d)
+  await page.click('[data-bp-field="pulse"]')
+  await typePad(p)
+  if (s === 126) await page.screenshot({ path: `${shots}/08-bp-sheet.png` })
+  await page.getByRole('button', { name: /^Save BP$/ }).click()
   await settle()
+  check(`bp sheet closes after saving ${s}/${d}`, (await page.locator('[role=dialog]').count()) === 0)
 }
 await page.reload({ waitUntil: 'networkidle' })
 const logsText = await text()
@@ -162,18 +170,32 @@ check(
   /DAILY CARE LEDGER/i.test(histText) && histText.includes('Pantocid‑DSR 40/30'),
 )
 check('history counts taken', /TAKEN\n+1\b/i.test(histText), histText.match(/TAKEN\n+\d+/i)?.[0]?.replace(/\n+/g, ' '))
+check('history shows the dose map', /EVERY DOSE AT A GLANCE/i.test(histText))
+check('history shows on-time score', /ON-TIME SCORE/i.test(histText) && /PERFECT DAYS/i.test(histText))
+check(
+  'history totals salt intake',
+  /MEDICINE INTAKE/i.test(histText) && /Pantoprazole/.test(histText),
+)
+await page.screenshot({ path: `${shots}/06-history.png`, fullPage: true })
 
 // 11. Settings — reminder times, and no sync UI left
 await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
 const setText = await text()
 check('no sync card', !/sync code|Share caregiver link|Copy code/i.test(setText))
+check('alert-speed chips', /ALERT SPEED/i.test(setText) && /10 minutes/.test(setText))
+check(
+  'betacap printed time is not editable',
+  /8:00 am/i.test(setText),
+  'shown as static text, not an input',
+)
 const timeInputs = page.locator('input[type=time]')
 check('editable reminder slots', (await timeInputs.count()) >= 6, `${await timeInputs.count()} inputs`)
+await page.screenshot({ path: `${shots}/05-settings.png`, fullPage: true })
 await timeInputs.first().fill('07:30')
 await settle(800)
 await page.goto(BASE, { waitUntil: 'networkidle' })
 check('reminder time updated', (await text()).includes('7:30 am'))
-await page.screenshot({ path: `${shots}/05-settings.png`, fullPage: true })
+await page.screenshot({ path: `${shots}/07-today-after.png`, fullPage: true })
 
 // 12. Report
 await page.goto(`${BASE}/report`, { waitUntil: 'networkidle' })

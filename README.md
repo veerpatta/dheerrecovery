@@ -23,9 +23,33 @@ living in one browser's local storage.
 | Framework| Next.js 15 (App Router, Server Actions), React 19        |
 | Language | TypeScript                                              |
 | Styling  | Tailwind CSS v4                                         |
+| Fonts    | Inter + Noto Sans Devanagari, self-hosted via @fontsource|
 | Database | Neon serverless Postgres via Drizzle ORM                |
 | Exports  | ExcelJS (.xlsx) · print-to-PDF report page              |
 | Hosting  | Vercel                                                  |
+
+## Layout
+
+The app is a 430px phone shell: sticky header (language, settings, SOS), a
+scrolling screen, and a five-tab bottom bar. Wider viewports get the same
+column centred on the page rather than a separate desktop layout — this is a
+tool caregivers use on a phone at the bedside.
+
+Three actions open as bottom sheets rather than pages, because they are things
+a caregiver reaches for mid-task: **SOS medicines**, **Log BP** (a numeric
+keypad, not number spinners) and **Add medicine**.
+
+The app tree is split by route group, which does not change any URL:
+
+- `app/(shell)/` — the six app screens, inside the phone shell.
+- `app/(print)/report/` — the doctor report, deliberately *outside* the shell
+  so page breaks, margins and wide tables survive a trip to the printer.
+
+Fonts are vendored through `@fontsource` rather than `next/font/google`. The
+app is a `noindex` medical record and should not fetch anything from a third
+party at runtime, and `next/font/google` needs outbound access to
+fonts.googleapis.com at *build* time, which fails on a runner without egress.
+Inter carries no Devanagari, so the Hindi chrome has its own face.
 
 ## How access works
 
@@ -57,9 +81,9 @@ thing standing between a stranger and the medical data.
 
 | Route            | Purpose                                                    |
 | ---------------- | ---------------------------------------------------------- |
-| `/`              | Today — the 7 scheduled doses, Taken/Skip, BP snapshot     |
+| `/`              | Today — progress ring, BP card, the 7 doses, Taken/Skip    |
 | `/chart`         | Full medicine chart: 5 routine + 5 SOS, all clinical text  |
-| `/history`       | Dose ledger by date range, completion stats, exports       |
+| `/history`       | Dose map, on-time score, salt intake, ledger, exports      |
 | `/safety`        | Emergency numbers, the four safety rules, review questions |
 | `/logs`          | BP intelligence, 14-day strip, seizure watch, notes        |
 | `/settings`      | Alert lead time, reminder times, add medicine              |
@@ -101,10 +125,12 @@ npm run db:migrate    # apply to DATABASE_URL (over HTTPS)
 npm run db:studio     # browse the data
 ```
 
-`db:migrate` runs `scripts/migrate.mjs`, which applies migrations through
-Neon's HTTP driver on port 443. `drizzle-kit migrate` needs TCP 5432, which is
-blocked on many CI runners and sandboxes; it is still available as
-`db:migrate:tcp` when you have a direct connection.
+`db:migrate` runs `scripts/migrate.mjs`. Against a Neon URL it applies
+migrations through Neon's HTTP driver on port 443; `drizzle-kit migrate` needs
+TCP 5432, which is blocked on many CI runners and sandboxes (it is still
+available as `db:migrate:tcp` when you have a direct connection). Any other
+`postgres://` URL falls back to node-postgres, mirroring `db/index.ts`, so the
+command above works against a local Postgres with no Neon account.
 
 ## Deployment (Vercel + Neon)
 
@@ -133,15 +159,26 @@ ENTRY_URL="https://dheerrecovery.vercel.app/" node scripts/live-check.mjs
 
 `scripts/smoke.mjs` drives a real browser through the whole app on a 420px
 viewport, starting from an empty database: opening straight onto today,
-verifying the prescription, marking a dose taken, undoing it, the SOS drawer,
-every tab, logging BP and seizures and notes, editing a reminder time, the
-printable report, the Excel download, a legacy `/c/<code>/` redirect, and a
-404 for an unknown path. It also fails the run on any console error or failed
-request.
+verifying the prescription, marking a dose taken, undoing it, the SOS sheet,
+every tab, logging BP through the keypad, seizures and notes, the dose map and
+salt-intake totals, editing a reminder time, the printable report, the Excel
+download, a legacy `/c/<code>/` redirect, and a 404 for an unknown path. It
+also fails the run on any console error or failed request.
 
 `scripts/live-check.mjs` runs a shorter version of the same flow against a
 deployed instance, and honours `HTTPS_PROXY` plus a Vercel `?_vercel_share=`
 link so it works against a deployment that still has Deployment Protection on.
+It writes to the real record: it marks one dose taken and undoes it, and leaves
+one BP reading behind.
+
+`scripts/hydration-check.mjs` replays every route in both languages against a
+dev server and fails on any console error or warning, which is where hydration
+mismatches actually surface.
+
+```bash
+npm run dev -- -p 3112
+BASE_URL=http://127.0.0.1:3112 node scripts/hydration-check.mjs
+```
 
 ## Medicines in the catalogue
 
