@@ -81,9 +81,14 @@ Two design notes worth keeping:
 
 ```bash
 npm run db:generate   # after editing db/schema.ts
-npm run db:migrate    # apply to DATABASE_URL
+npm run db:migrate    # apply to DATABASE_URL (over HTTPS)
 npm run db:studio     # browse the data
 ```
+
+`db:migrate` runs `scripts/migrate.mjs`, which applies migrations through
+Neon's HTTP driver on port 443. `drizzle-kit migrate` needs TCP 5432, which is
+blocked on many CI runners and sandboxes; it is still available as
+`db:migrate:tcp` when you have a direct connection.
 
 ## Deployment (Vercel + Neon)
 
@@ -95,6 +100,8 @@ npm run db:studio     # browse the data
    ```bash
    DATABASE_URL="<neon pooled url>" npm run db:migrate
    ```
+   This goes over HTTPS, so it works from anywhere — including CI runners that
+   block outbound Postgres on 5432.
 4. Deploy. Open the site, create a record, and save the care link.
 
 Use the **pooled** Neon connection string (`...-pooler...`) — serverless
