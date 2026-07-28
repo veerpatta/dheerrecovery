@@ -1,0 +1,17 @@
+{
+  "name": "Dheer Recovery Medicines",
+  "short_name": "Dheer Recovery",
+  "description": "Caregiver medicine organiser, BP log and recovery record.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f8f6",
+  "theme_color": "#29a997",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

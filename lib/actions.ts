@@ -1,0 +1,368 @@
+'use server'
+
+import { and, eq } from 'drizzle-orm'
+import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
+import { db } from '@/db'
+import {
+  bpReadings,
+  careNotes,
+  doseRecords,
+  doseSlots,
+  households,
+  medicines,
+  seizureEvents,
+} from '@/db/schema'
+import { generateCareCode, isValidCareCode } from './care-code'
+import { createHousehold, findHousehold } from './queries'
+import { careDate } from './time'
+
+async function requireHousehold(careCode: string) {
+  if (!isValidCareCode(careCode)) throw new Error('Invalid care code.')
+  const household = await findHousehold(careCode)
+  if (!household) throw new Error('Care record not found.')
+  return household
+}
+
+/**
+ * Every write shows up on more than one tab — a dose tap changes Today, the
+ * history ledger and the report; a BP reading changes Today's snapshot and the
+ * logs page. So the whole care layout is revalidated rather than one segment.
+ * All pages are `force-dynamic`, so this only clears the client router cache.
+ */
+function refresh(careCode: string) {
+  revalidatePath(`/c/${careCode}`, 'layout')
+}
+
+// ------------------------------------------------------------- household ---
+
+export async function startNewRecord() {
+  const code = generateCareCode()
+  await createHousehold(code)
+  redirect(`/c/${code}`)
+}
+
+export async function openExistingRecord(formData: FormData) {
+  const raw = String(formData.get('careCode') ?? '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+  if (!isValidCareCode(raw)) {
+    return { error: 'That code does not look right. Check it and try again.' }
+  }
+  const household = await findHousehold(raw)
+  if (!household) {
+    return { error: 'No care record found for that code.' }
+  }
+  redirect(`/c/${raw}`)
+}
+
+export async function confirmPrescription(careCode: string) {
+  const h = await requireHousehold(careCode)
+  await db
+    .update(households)
+    .set({ rxVerifiedAt: new Date(), updatedAt: new Date() })
+    .where(eq(households.id, h.id))
+  refresh(careCode)
+}
+
+export async function updateSettings(careCode: string, formData: FormData) {
+  const h = await requireHousehold(careCode)
+  const lead = Number(formData.get('alertLeadMinutes'))
+  const courseStart = String(formData.get('courseStart') ?? h.courseStart)
+
+  await db
+    .update(households)
+    .set({
+      alertLeadMinutes: [5, 10, 15].includes(lead) ? lead : h.alertLeadMinutes,
+      courseStart: /^\d{4}-\d{2}-\d{2}$/.test(courseStart) ? courseStart : h.courseStart,
+      updatedAt: new Date(),
+    })
+    .where(eq(households.id, h.id))
+  refresh(careCode)
+}
+
+export async function updateBand(careCode: string, formData: FormData) {
+  const h = await requireHousehold(careCode)
+  const num = (k: string, fallback: number) => {
+    const v = Number(formData.get(k))
+    return Number.isFinite(v) && v > 20 && v < 300 ? Math.round(v) : fallback
+  }
+  await db
+    .update(households)
+    .set({
+      bandSystolicLow: num('bandSystolicLow', h.bandSystolicLow),
+      bandSystolicHigh: num('bandSystolicHigh', h.bandSystolicHigh),
+      bandDiastolicLow: num('bandDiastolicLow', h.bandDiastolicLow),
+      bandDiastolicHigh: num('bandDiastolicHigh', h.bandDiastolicHigh),
+      updatedAt: new Date(),
+    })
+    .where(eq(households.id, h.id))
+  refresh(careCode)
+}
+
+// ----------------------------------------------------------------- doses ---
+
+/**
+ * Record a routine dose as taken or skipped. Re-tapping the same status
+ * clears the record, which is how "Undo" works — a caregiver must always be
+ * able to correct a mistaken tap.
+ */
+export async function recordDose(
+  careCode: string,
+  input: {
+    medicineId: string
+    slotKey: string
+    doseDate: string
+    status: 'taken' | 'skipped'
+    takenAt?: string | null
+    note?: string | null
+  },
+) {
+  const h = await requireHousehold(careCode)
+
+  const [medicine] = await db
+    .select()
+    .from(medicines)
+    .where(and(eq(medicines.id, input.medicineId), eq(medicines.householdId, h.id)))
+    .limit(1)
+  if (!medicine) throw new Error('Medicine not found in this record.')
+
+  const [slot] = await db
+    .select()
+    .from(doseSlots)
+    .where(
+      and(eq(doseSlots.medicineId, medicine.id), eq(doseSlots.slotKey, input.slotKey)),
+    )
+    .limit(1)
+
+  const [existing] = await db
+    .select()
+    .from(doseRecords)
+    .where(
+      and(
+        eq(doseRecords.householdId, h.id),
+        eq(doseRecords.medicineId, medicine.id),
+        eq(doseRecords.slotKey, input.slotKey),
+        eq(doseRecords.doseDate, input.doseDate),
+      ),
+    )
+    .limit(1)
+
+  const takenAt = input.takenAt ? new Date(input.takenAt) : new Date()
+  if (Number.isNaN(takenAt.getTime())) throw new Error('Choose a valid dose time.')
+  if (takenAt.getTime() > Date.now() + 60_000) {
+    throw new Error('Dose time cannot be in the future.')
+  }
+
+  if (existing) {
+    if (existing.status === input.status) {
+      await db.delete(doseRecords).where(eq(doseRecords.id, existing.id))
+      refresh(careCode)
+      return { cleared: true }
+    }
+    await db
+      .update(doseRecords)
+      .set({
+        status: input.status,
+        takenAt: input.status === 'taken' ? takenAt : null,
+        note: input.note ?? null,
+      })
+      .where(eq(doseRecords.id, existing.id))
+  } else {
+    await db.insert(doseRecords).values({
+      householdId: h.id,
+      medicineId: medicine.id,
+      slotKey: input.slotKey,
+      doseDate: input.doseDate,
+      status: input.status,
+      scheduledTime: slot?.time ?? null,
+      takenAt: input.status === 'taken' ? takenAt : null,
+      note: input.note ?? null,
+    })
+  }
+
+  refresh(careCode)
+  return { cleared: false }
+}
+
+/** SOS doses sit outside the schedule and are always appended, never toggled. */
+export async function logSosDose(
+  careCode: string,
+  input: { medicineId: string; takenAt?: string | null; note?: string | null },
+) {
+  const h = await requireHousehold(careCode)
+  const [medicine] = await db
+    .select()
+    .from(medicines)
+    .where(and(eq(medicines.id, input.medicineId), eq(medicines.householdId, h.id)))
+    .limit(1)
+  if (!medicine) throw new Error('Medicine not found in this record.')
+  if (medicine.kind !== 'sos') throw new Error('That medicine is not an SOS entry.')
+
+  const takenAt = input.takenAt ? new Date(input.takenAt) : new Date()
+  if (Number.isNaN(takenAt.getTime())) throw new Error('Choose a valid dose time.')
+  if (takenAt.getTime() > Date.now() + 60_000) {
+    throw new Error('Dose time cannot be in the future.')
+  }
+
+  await db.insert(doseRecords).values({
+    householdId: h.id,
+    medicineId: medicine.id,
+    slotKey: `sos-${takenAt.getTime()}`,
+    doseDate: careDate(takenAt),
+    status: 'taken',
+    takenAt,
+    note: input.note ?? null,
+  })
+  refresh(careCode)
+}
+
+export async function updateSlotTime(
+  careCode: string,
+  input: { slotId: string; time: string },
+) {
+  const h = await requireHousehold(careCode)
+  if (!/^\d{2}:\d{2}$/.test(input.time)) throw new Error('Choose a valid dose time.')
+
+  const [row] = await db
+    .select({ slotId: doseSlots.id })
+    .from(doseSlots)
+    .innerJoin(medicines, eq(doseSlots.medicineId, medicines.id))
+    .where(and(eq(doseSlots.id, input.slotId), eq(medicines.householdId, h.id)))
+    .limit(1)
+  if (!row) throw new Error('Reminder slot not found in this record.')
+
+  await db
+    .update(doseSlots)
+    .set({ time: input.time })
+    .where(eq(doseSlots.id, input.slotId))
+  refresh(careCode)
+}
+
+/** Caregiver-added medicine — clearly flagged as not from the prescription. */
+export async function addCustomMedicine(careCode: string, formData: FormData) {
+  const h = await requireHousehold(careCode)
+  const brand = String(formData.get('brand') ?? '').trim()
+  const dose = String(formData.get('dose') ?? '').trim()
+  const time = String(formData.get('time') ?? '').trim()
+  if (!brand) throw new Error('Enter the medicine name.')
+
+  const catalogId = `custom-${Date.now()}`
+  const [med] = await db
+    .insert(medicines)
+    .values({
+      householdId: h.id,
+      catalogId,
+      brand,
+      dose: dose || 'Dose not recorded',
+      kind: time ? 'routine' : 'sos',
+      sosStatus: time ? null : 'previous',
+      tone: 'recovery',
+      isCustom: true,
+      sortOrder: 900,
+      instruction:
+        'This entry was added by a caregiver. Verify the strip and prescription before every dose.',
+      doctorNote: 'Caregiver record only. A missing entry does not prove a missed dose.',
+      prescribedAt: 'Added by caregiver',
+    })
+    .returning()
+
+  if (time && /^\d{2}:\d{2}$/.test(time)) {
+    await db.insert(doseSlots).values({
+      medicineId: med.id,
+      slotKey: 'am',
+      time,
+      label: 'Caregiver reminder',
+    })
+  }
+  refresh(careCode)
+}
+
+// ------------------------------------------------------------------- bp ----
+
+export async function logBp(careCode: string, formData: FormData) {
+  const h = await requireHousehold(careCode)
+  const systolic = Number(formData.get('systolic'))
+  const diastolic = Number(formData.get('diastolic'))
+  const pulseRaw = formData.get('pulse')
+  const pulse = pulseRaw ? Number(pulseRaw) : null
+  const symptoms = String(formData.get('symptoms') ?? '').trim() || null
+  const measuredAtRaw = String(formData.get('measuredAt') ?? '')
+
+  if (!Number.isFinite(systolic) || systolic < 50 || systolic > 260) {
+    throw new Error('Enter a systolic reading between 50 and 260.')
+  }
+  if (!Number.isFinite(diastolic) || diastolic < 30 || diastolic > 180) {
+    throw new Error('Enter a diastolic reading between 30 and 180.')
+  }
+
+  const measuredAt = measuredAtRaw ? new Date(measuredAtRaw) : new Date()
+  if (Number.isNaN(measuredAt.getTime())) throw new Error('Choose a valid time.')
+  if (measuredAt.getTime() > Date.now() + 60_000) {
+    throw new Error('Reading time cannot be in the future.')
+  }
+
+  await db.insert(bpReadings).values({
+    householdId: h.id,
+    systolic: Math.round(systolic),
+    diastolic: Math.round(diastolic),
+    pulse: pulse && Number.isFinite(pulse) ? Math.round(pulse) : null,
+    symptoms,
+    measuredAt,
+  })
+  refresh(careCode)
+}
+
+export async function deleteBp(careCode: string, id: string) {
+  const h = await requireHousehold(careCode)
+  await db
+    .delete(bpReadings)
+    .where(and(eq(bpReadings.id, id), eq(bpReadings.householdId, h.id)))
+  refresh(careCode)
+}
+
+// -------------------------------------------------------- recovery logs ----
+
+export async function logSeizure(careCode: string, formData: FormData) {
+  const h = await requireHousehold(careCode)
+  const duration = Number(formData.get('durationMinutes'))
+  const recovery = Number(formData.get('recoveryMinutes'))
+  const description = String(formData.get('description') ?? '').trim()
+  const occurredAtRaw = String(formData.get('occurredAt') ?? '')
+
+  const occurredAt = occurredAtRaw ? new Date(occurredAtRaw) : new Date()
+  if (Number.isNaN(occurredAt.getTime())) throw new Error('Choose a valid time.')
+
+  await db.insert(seizureEvents).values({
+    householdId: h.id,
+    occurredAt,
+    durationMinutes: Number.isFinite(duration) ? Math.round(duration) : null,
+    recoveryMinutes: Number.isFinite(recovery) ? Math.round(recovery) : null,
+    description: description || null,
+  })
+  refresh(careCode)
+}
+
+export async function deleteSeizure(careCode: string, id: string) {
+  const h = await requireHousehold(careCode)
+  await db
+    .delete(seizureEvents)
+    .where(and(eq(seizureEvents.id, id), eq(seizureEvents.householdId, h.id)))
+  refresh(careCode)
+}
+
+export async function addCareNote(careCode: string, formData: FormData) {
+  const h = await requireHousehold(careCode)
+  const body = String(formData.get('body') ?? '').trim()
+  if (!body) throw new Error('Write something before saving the note.')
+  await db.insert(careNotes).values({ householdId: h.id, body })
+  refresh(careCode)
+}
+
+export async function deleteCareNote(careCode: string, id: string) {
+  const h = await requireHousehold(careCode)
+  await db
+    .delete(careNotes)
+    .where(and(eq(careNotes.id, id), eq(careNotes.householdId, h.id)))
+  refresh(careCode)
+}

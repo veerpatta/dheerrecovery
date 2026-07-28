@@ -1,0 +1,122 @@
+@import 'tailwindcss';
+
+/* Palette carried over from the original Dheer Recovery organiser. */
+@theme {
+  --color-paper: #f6f8f6;
+  --color-white: #ffffff;
+  --color-ink: #16243b;
+  --color-navy: #132238;
+  --color-muted: #66748b;
+  --color-line: #dde5e2;
+  --color-teal: #29a997;
+  --color-mint: #e7f5f1;
+  --color-coral: #ee6956;
+  --color-coral-soft: #fff0eb;
+  --color-amber: #d7972c;
+  --color-blue: #507fc6;
+  --color-violet: #8069b0;
+
+  --font-sans:
+    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  --shadow-card: 0 18px 60px #192d3917;
+  --shadow-soft: 0 2px 10px #192d390d;
+}
+
+html {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  /* Room for the fixed bottom action bar on phones. */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Tap targets stay comfortable for someone dosing in a hurry. */
+button,
+a {
+  touch-action: manipulation;
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-line bg-white p-5;
+    box-shadow: var(--shadow-soft);
+  }
+
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-muted;
+  }
+
+  /*
+   * Tailwind v4 cannot @apply a class defined in the same layer, so each
+   * button variant spells out the shared base rather than extending `.btn`.
+   */
+  .btn,
+  .btn-primary,
+  .btn-ghost,
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5
+           text-sm font-semibold transition
+           disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply bg-teal text-white hover:brightness-95 active:brightness-90;
+  }
+  .btn-ghost {
+    @apply border border-line bg-white text-ink hover:bg-paper;
+  }
+  .btn-danger {
+    @apply bg-coral text-white hover:brightness-95;
+  }
+
+  .field {
+    @apply w-full rounded-xl border border-line bg-white px-3 py-2.5 text-base
+           text-ink outline-none placeholder:text-muted/70
+           focus:border-teal focus:ring-2 focus:ring-teal/20;
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1
+           text-[11px] font-semibold uppercase tracking-wide;
+  }
+}
+
+/*
+ * Bilingual chrome without client-side state: both languages are rendered and
+ * CSS picks one. Server components stay server components, and there is no
+ * hydration flash on the medicine list.
+ */
+.lang-hi {
+  display: none;
+}
+html[data-lang='hi'] .lang-en {
+  display: none;
+}
+html[data-lang='hi'] .lang-hi {
+  display: inline;
+}
+
+/* The doctor report is a real printed document, not a screenshot. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  html,
+  body {
+    background: #fff;
+  }
+  .print-page {
+    break-after: page;
+  }
+  .card {
+    box-shadow: none;
+    border-color: #cbd5cf;
+  }
+  @page {
+    margin: 14mm;
+  }
+}
