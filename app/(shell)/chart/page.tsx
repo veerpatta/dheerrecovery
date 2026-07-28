@@ -78,6 +78,13 @@ export default async function ChartPage() {
             {times ? (
               <p className="mt-1 text-[13px] font-extrabold text-teal">{times}</p>
             ) : null}
+            {m.dosingIntervalHours ? (
+              <p className="mt-1 text-[11.5px] font-semibold text-ink/80">
+                Take about {m.dosingIntervalHours} hours apart — the evening dose
+                follows {m.dosingIntervalHours} hours after the morning one was
+                actually given.
+              </p>
+            ) : null}
             {m.isCustom ? (
               <p className="mt-1 text-xs font-semibold text-amber">
                 Added by a caregiver — not on the printed prescription.

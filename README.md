@@ -35,9 +35,16 @@ scrolling screen, and a five-tab bottom bar. Wider viewports get the same
 column centred on the page rather than a separate desktop layout — this is a
 tool caregivers use on a phone at the bedside.
 
-Three actions open as bottom sheets rather than pages, because they are things
+Four actions open as bottom sheets rather than pages, because they are things
 a caregiver reaches for mid-task: **SOS medicines**, **Log BP** (a numeric
-keypad, not number spinners) and **Add medicine**.
+keypad, not number spinners), **Add medicine**, and the **dose time** dialog.
+
+SOS and Log BP are floating buttons above the nav on every screen. Tapping
+**Taken** on a dose opens the time dialog — a big "Now", one-tap "15m ago"
+style chips, and a custom time — because caregivers log after settling the
+patient, not during, and recording the tap instant quietly corrupts every
+timing figure in the doctor report. Re-tapping **Taken ✓** still undoes
+immediately: a dialog in front of a correction is the wrong trade.
 
 The app tree is split by route group, which does not change any URL:
 
@@ -111,13 +118,28 @@ Seven tables — `households`, `medicines`, `dose_slots`, `dose_records`,
 catalogue medicines and their reminder slots from `lib/catalog.ts`, which holds
 the prescription text transcribed verbatim.
 
-Two design notes worth keeping:
+Three design notes worth keeping:
 
 - **A dose row only exists once a caregiver taps.** "Not recorded" is the
   absence of a row, never an inferred "missed" — the app must not imply a dose
   was skipped when nobody wrote it down.
 - **All dates resolve through `Asia/Kolkata`.** Vercel functions run in UTC; a
   9:30 pm dose would otherwise land on the wrong date after 18:30 UTC.
+- **`medicines.dosing_interval_hours` drives the 12-hour rule.** Lacoset and
+  Valprol are prescribed twice daily about twelve hours apart, so once the
+  morning dose is recorded the evening dose is due twelve hours after the time
+  it was *actually* given — 8:20 am makes the evening dose 8:20 pm, and
+  `dose_records.scheduled_time` stores that derived time so drift and the
+  on-time score stay honest.
+
+  The chain is deliberately re-anchored every care-date: tomorrow's morning
+  slot returns to its printed reminder time. Chaining across days instead
+  would let one late dose ratchet the whole schedule later with no way back,
+  which is not a safe property for an anti-seizure medicine. A gap that lands
+  past midnight falls back to the printed time and says so on the card.
+
+  Rows recorded before this shipped keep their original `scheduled_time` —
+  history is never rewritten.
 
 ```bash
 npm run db:generate   # after editing db/schema.ts
@@ -153,17 +175,22 @@ functions open many short-lived connections.
 
 ```bash
 npm run build
-DATABASE_URL="postgres://…" scripts/e2e.sh 3111        # local, 38 checks
+DATABASE_URL="postgres://…" scripts/e2e.sh 3111        # local, 63 checks
 ENTRY_URL="https://dheerrecovery.vercel.app/" node scripts/live-check.mjs
 ```
 
 `scripts/smoke.mjs` drives a real browser through the whole app on a 420px
 viewport, starting from an empty database: opening straight onto today,
-verifying the prescription, marking a dose taken, undoing it, the SOS sheet,
-every tab, logging BP through the keypad, seizures and notes, the dose map and
-salt-intake totals, editing a reminder time, the printable report, the Excel
-download, a legacy `/c/<code>/` redirect, and a 404 for an unknown path. It
-also fails the run on any console error or failed request.
+verifying the prescription, marking a dose taken through the time dialog,
+undoing it, the twelve-hour chain (recording Lacoset's morning dose at 8:20 and
+asserting the evening dose moves to 8:20 pm, then that undoing it restores the
+printed time), the SOS sheet and adding an SOS medicine, an SOS dose appearing
+on the timeline without moving the N/7 ring, every tab, logging BP through the
+keypad, seizures and notes, the dose map and salt-intake totals, editing a
+reminder time, the printable report, the Excel download, a legacy `/c/<code>/`
+redirect, and a 404 for an unknown path. It also checks the floating buttons
+clear the last list item, and fails the run on any console error or failed
+request.
 
 `scripts/live-check.mjs` runs a shorter version of the same flow against a
 deployed instance, and honours `HTTPS_PROXY` plus a Vercel `?_vercel_share=`

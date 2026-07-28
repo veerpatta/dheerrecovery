@@ -34,6 +34,13 @@ export interface CatalogMedicine {
   prescriptionHi: string
   courseDays: number | null
   slots: CatalogSlot[]
+  /**
+   * Hours the prescription expects between consecutive doses. Set only where
+   * the spacing is clinically load-bearing — the two anti-seizure medicines.
+   * The prescription prints "morning and evening" without clock times, so an
+   * even 12-hour split is the caregiver reading of that.
+   */
+  dosingIntervalHours?: number
   tone: Tone
   kind: Kind
   sosStatus?: SosStatus
@@ -85,6 +92,7 @@ export const CATALOG: CatalogMedicine[] = [
       { key: 'am', time: '08:00', label: 'Morning' },
       { key: 'pm', time: '20:00', label: 'Evening' },
     ],
+    dosingIntervalHours: 12,
     tone: 'seizure',
     kind: 'routine',
     food: 'May be taken with or without food; keep the routine consistent.',
@@ -110,6 +118,7 @@ export const CATALOG: CatalogMedicine[] = [
       { key: 'am', time: '08:00', label: 'Morning' },
       { key: 'pm', time: '20:00', label: 'Evening' },
     ],
+    dosingIntervalHours: 12,
     tone: 'seizure',
     kind: 'routine',
     food: 'May be taken with or without food; take it the same way each day.',

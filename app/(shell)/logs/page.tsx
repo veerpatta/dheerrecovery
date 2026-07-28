@@ -1,5 +1,4 @@
 import { BpChart } from '@/components/bp-chart'
-import { SheetTrigger } from '@/components/chrome'
 import { BandForm, DeleteButton, NoteForm, SeizureForm } from '@/components/log-forms'
 import { bandOf, bpStrip, classify, summarise } from '@/lib/bp'
 import { getHousehold } from '@/lib/household'
@@ -53,22 +52,11 @@ export default async function LogsPage({
         <h1 className="mt-1 text-xl font-extrabold tracking-tight text-navy">
           Record useful information for the doctor
         </h1>
-        <p className="mt-1.5 mb-3 text-[12.5px] leading-relaxed text-muted">
+        <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
           Home BP is best measured as two readings about a minute apart — log both.
-          Saved to the shared family record.
+          Saved to the shared family record. Use the floating Log BP button any
+          time, from any screen.
         </p>
-        <SheetTrigger
-          sheet="bp"
-          aria-label="Log BP"
-          className="h-[50px] w-full rounded-2xl bg-teal text-base font-bold text-white transition active:scale-[0.97]"
-        >
-          <span className="lang-en" aria-hidden>
-            Log BP · Add a reading
-          </span>
-          <span className="lang-hi" aria-hidden>
-            BP दर्ज करें · रीडिंग जोड़ें
-          </span>
-        </SheetTrigger>
       </section>
 
       <section className="card flex flex-col gap-3.5">

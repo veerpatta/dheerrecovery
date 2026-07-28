@@ -10,21 +10,36 @@ import { prettyTime } from '@/lib/time'
  * on today's schedule; leaving it blank files it with the SOS entries.
  */
 export function AddMedicineSheet() {
-  const { run, pending, closeSheet } = useChrome()
+  const { run, pending, closeSheet, payload } = useChrome()
   const form = useRef<HTMLFormElement>(null)
   const [schedule, setSchedule] = useState(false)
   const [frequency, setFrequency] = useState(1)
+
+  // Opened from the SOS sheet: no reminder time, which is what makes
+  // `addCustomMedicine` file it as an SOS entry rather than a routine one.
+  const sosMode = payload.mode === 'sos'
 
   return (
     <Sheet
       name="add"
       title={
-        <>
-          <span className="lang-en">Add medicine</span>
-          <span className="lang-hi">दवा जोड़ें</span>
-        </>
+        sosMode ? (
+          <>
+            <span className="lang-en">Add SOS medicine</span>
+            <span className="lang-hi">SOS दवा जोड़ें</span>
+          </>
+        ) : (
+          <>
+            <span className="lang-en">Add medicine</span>
+            <span className="lang-hi">दवा जोड़ें</span>
+          </>
+        )
       }
-      intro="Anything added here is marked as a caregiver entry, not part of the printed prescription. Set a time to put it on today’s schedule; leave the time blank to add it as an SOS-style entry."
+      intro={
+        sosMode
+          ? 'Added as an SOS entry with no reminder — outside the routine schedule, like the other SOS medicines. It is marked as a caregiver entry, not part of the printed prescription.'
+          : 'Anything added here is marked as a caregiver entry, not part of the printed prescription. Set a time to put it on today’s schedule; leave the time blank to add it as an SOS-style entry.'
+      }
     >
       <form
         ref={form}
@@ -62,10 +77,17 @@ export function AddMedicineSheet() {
           </label>
         </div>
 
-        <label className="block space-y-1">
-          <span className="eyebrow">Reminder time (optional)</span>
-          <input name="time" type="time" className="field" />
-        </label>
+        {/*
+          In SOS mode no time is submitted at all — that absence is exactly
+          what makes `addCustomMedicine` file it as an SOS entry rather than
+          putting it on the reminder schedule.
+        */}
+        {sosMode ? null : (
+          <label className="block space-y-1">
+            <span className="eyebrow">Reminder time (optional)</span>
+            <input name="time" type="time" className="field" />
+          </label>
+        )}
 
         <details>
           <summary className="flex items-center gap-1 py-1 text-xs font-bold text-teal">
@@ -113,22 +135,24 @@ export function AddMedicineSheet() {
               </label>
             </fieldset>
 
-            <label className="flex items-center gap-3 rounded-xl bg-white p-3">
-              <input
-                type="checkbox"
-                checked={schedule}
-                onChange={(e) => setSchedule(e.target.checked)}
-                className="h-5 w-5 accent-teal"
-              />
-              <span>
-                <b className="block text-sm text-navy">Repeat more than once a day</b>
-                <small className="text-xs text-muted">
-                  Enter only the times provided by the treating team.
-                </small>
-              </span>
-            </label>
+            {sosMode ? null : (
+              <label className="flex items-center gap-3 rounded-xl bg-white p-3">
+                <input
+                  type="checkbox"
+                  checked={schedule}
+                  onChange={(e) => setSchedule(e.target.checked)}
+                  className="h-5 w-5 accent-teal"
+                />
+                <span>
+                  <b className="block text-sm text-navy">Repeat more than once a day</b>
+                  <small className="text-xs text-muted">
+                    Enter only the times provided by the treating team.
+                  </small>
+                </span>
+              </label>
+            )}
 
-            {schedule ? (
+            {schedule && !sosMode ? (
               <div className="flex flex-col gap-2 rounded-xl border border-line bg-white p-3">
                 <label className="block space-y-1">
                   <span className="eyebrow">Daily frequency</span>
@@ -195,10 +219,14 @@ export function AddMedicineSheet() {
           className="btn-primary h-12 w-full"
         >
           <span className="lang-en" aria-hidden>
-            {pending ? 'Saving…' : 'Add to schedule'}
+            {pending ? 'Saving…' : sosMode ? 'Add to SOS list' : 'Add to schedule'}
           </span>
           <span className="lang-hi" aria-hidden>
-            {pending ? 'सहेजा जा रहा…' : 'शेड्यूल में जोड़ें'}
+            {pending
+              ? 'सहेजा जा रहा…'
+              : sosMode
+                ? 'SOS सूची में जोड़ें'
+                : 'शेड्यूल में जोड़ें'}
           </span>
         </button>
       </form>

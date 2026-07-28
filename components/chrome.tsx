@@ -13,12 +13,33 @@ import {
   type ReactNode,
 } from 'react'
 
-export type SheetName = 'sos' | 'bp' | 'add'
+export type SheetName = 'sos' | 'bp' | 'add' | 'dose'
 type Sync = 'idle' | 'saving' | 'synced'
+
+/**
+ * Payload for the sheets that are opened *about* something: which dose is
+ * being timed, or whether the add sheet is adding a routine or SOS medicine.
+ * Carrying it here means one sheet instance serves every dose card, rather
+ * than each card mounting a dialog of its own.
+ */
+export interface SheetPayload {
+  medicineId?: string
+  slotKey?: string
+  doseDate?: string
+  brand?: string
+  /** The time the dose is due, "HH:MM" — derived for interval medicines. */
+  dueTime?: string
+  intervalHours?: number | null
+  /** When the previous dose of the same medicine went in, for the gap read-out. */
+  previousTakenAt?: string | null
+  previousLabel?: string | null
+  mode?: 'routine' | 'sos'
+}
 
 interface Chrome {
   sheet: SheetName | null
-  openSheet: (name: SheetName) => void
+  payload: SheetPayload
+  openSheet: (name: SheetName, payload?: SheetPayload) => void
   closeSheet: () => void
   /** Show a transient message above the bottom nav. */
   notify: (message: string) => void
@@ -43,6 +64,7 @@ export function useChrome(): Chrome {
 export function ChromeProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
   const [sheet, setSheet] = useState<SheetName | null>(null)
+  const [payload, setPayload] = useState<SheetPayload>({})
   const [toast, setToast] = useState<string | null>(null)
   const [sync, setSync] = useState<Sync>('idle')
   const [pending, startTransition] = useTransition()
@@ -95,14 +117,18 @@ export function ChromeProvider({ children }: { children: ReactNode }) {
   const value = useMemo<Chrome>(
     () => ({
       sheet,
-      openSheet: setSheet,
+      payload,
+      openSheet: (name, next = {}) => {
+        setPayload(next)
+        setSheet(name)
+      },
       closeSheet: () => setSheet(null),
       notify,
       run,
       pending,
       sync,
     }),
-    [notify, pending, run, sheet, sync],
+    [notify, payload, pending, run, sheet, sync],
   )
 
   return (
@@ -111,7 +137,15 @@ export function ChromeProvider({ children }: { children: ReactNode }) {
       {toast ? (
         <p
           role="status"
-          className="animate-toast-in fixed bottom-24 left-1/2 z-60 -translate-x-1/2 rounded-full bg-navy px-4 py-2.5 text-[13px] font-semibold whitespace-nowrap text-white shadow-[0_8px_24px_rgba(19,34,56,.35)] no-print"
+          /*
+           * Above the nav normally. While a sheet is open the same spot lands
+           * in the middle of the sheet's controls, so it moves to the top —
+           * a toast that covers the button you are reaching for is worse than
+           * no toast.
+           */
+          className={`animate-toast-in fixed left-1/2 z-60 -translate-x-1/2 rounded-full bg-navy px-4 py-2.5 text-[13px] font-semibold whitespace-nowrap text-white shadow-[0_8px_24px_rgba(19,34,56,.35)] no-print ${
+            sheet ? 'top-4' : 'bottom-24'
+          }`}
         >
           {toast}
         </p>
@@ -147,17 +181,24 @@ export function SyncLabel() {
  *  server component. */
 export function SheetTrigger({
   sheet,
+  payload,
   className,
   children,
   ...rest
 }: {
   sheet: SheetName
+  payload?: SheetPayload
   className?: string
   children: ReactNode
 } & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'children'>) {
   const { openSheet } = useChrome()
   return (
-    <button type="button" onClick={() => openSheet(sheet)} className={className} {...rest}>
+    <button
+      type="button"
+      onClick={() => openSheet(sheet, payload)}
+      className={className}
+      {...rest}
+    >
       {children}
     </button>
   )

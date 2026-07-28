@@ -67,6 +67,13 @@ export const medicines = pgTable(
     /** 'current' | 'previous' | 'supportive' — SOS permission status */
     sosStatus: text('sos_status'),
     symptom: text('symptom'),
+    /**
+     * Hours the prescription expects between consecutive doses of this
+     * medicine — 12 for the anti-seizure pair. When set, a later slot's due
+     * time is derived from when the previous dose was actually taken, so an
+     * 8:20 am morning dose moves the evening dose to 8:20 pm.
+     */
+    dosingIntervalHours: integer('dosing_interval_hours'),
     repeatableLog: boolean('repeatable_log').notNull().default(false),
     food: text('food'),
     prescribedAt: text('prescribed_at'),

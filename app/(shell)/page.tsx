@@ -1,5 +1,6 @@
 import { SheetTrigger } from '@/components/chrome'
 import { DoseCard } from '@/components/dose-card'
+import { LoggedDoseRow } from '@/components/logged-dose-row'
 import { VerifyBanner } from '@/components/verify-banner'
 import { bandOf, classify, summarise } from '@/lib/bp'
 import { getHousehold } from '@/lib/household'
@@ -12,7 +13,9 @@ import {
 import {
   careClock,
   careDate,
+  careMinutes,
   driftMinutes,
+  minutesOf,
   prettyDate,
   prettyDateTime,
   prettyRxDate,
@@ -41,13 +44,37 @@ export default async function TodayPage() {
   ).length
   const next = schedule.find((d) => d.status === 'upcoming')
 
-  const manualRecords = records.filter((r) => r.slotKey.startsWith('manual-'))
-  const customUnscheduled = meds
-    .filter((m) => m.isCustom && m.slots.length === 0 && m.kind !== 'sos')
-    .map((medicine) => ({
-      medicine,
-      record: manualRecords.find((r) => r.medicineId === medicine.id),
-    }))
+  /*
+   * The day as it actually happened: the seven scheduled slots plus every
+   * unscheduled dose that was logged, in one list ordered by time. SOS rows
+   * are merged into the *view* only — they never enter `schedule`, which is
+   * what the progress ring, "left to record" and every adherence figure in
+   * the app are counted from.
+   */
+  const medById = new Map(meds.map((m) => [m.id, m]))
+  const logged = records
+    .filter((r) => /^(sos|manual)-/.test(r.slotKey) && medById.has(r.medicineId))
+    .map((r) => {
+      const at = new Date(r.takenAt ?? r.createdAt)
+      return { record: r, medicine: medById.get(r.medicineId)!, at }
+    })
+
+  type TimelineItem =
+    | { kind: 'scheduled'; minutes: number; dose: (typeof schedule)[number] }
+    | { kind: 'logged'; minutes: number; entry: (typeof logged)[number] }
+
+  const timeline: TimelineItem[] = [
+    ...schedule.map((dose) => ({
+      kind: 'scheduled' as const,
+      minutes: minutesOf(dose.time),
+      dose,
+    })),
+    ...logged.map((entry) => ({
+      kind: 'logged' as const,
+      minutes: careMinutes(entry.at),
+      entry,
+    })),
+  ].sort((a, b) => a.minutes - b.minutes)
 
   const band = bandOf(household)
   const bp = summarise(readings, band)
@@ -246,58 +273,10 @@ export default async function TodayPage() {
         </SheetTrigger>
       </section>
 
-      {customUnscheduled.length ? (
-        <section className="card">
-          <p className="eyebrow">Caregiver-added medicines</p>
-          <p className="mt-1 text-sm font-bold text-navy">
-            Added outside the printed schedule
-          </p>
-          <ul className="mt-3 flex flex-col gap-2">
-            {customUnscheduled.map(({ medicine, record }) => (
-              <li
-                key={medicine.id}
-                className="flex items-start justify-between gap-3 rounded-xl bg-paper px-3 py-2.5"
-              >
-                <div>
-                  <p className="text-sm font-bold text-navy">{medicine.brand}</p>
-                  <p className="text-xs text-muted">
-                    {medicine.dose} · No reminder schedule
-                  </p>
-                  {record?.takenAt ? (
-                    <p className="mt-0.5 text-[11px] text-muted">
-                      Recorded {prettyDateTime(record.takenAt)}
-                    </p>
-                  ) : null}
-                </div>
-                <span
-                  className={`pill shrink-0 ${
-                    record?.status === 'taken'
-                      ? 'bg-mint text-teal'
-                      : record?.status === 'skipped'
-                        ? 'bg-coral-soft text-coral'
-                        : 'bg-white text-muted'
-                  }`}
-                >
-                  {record?.status === 'taken'
-                    ? 'Taken'
-                    : record?.status === 'skipped'
-                      ? 'Skipped'
-                      : 'Added'}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-xs leading-relaxed text-muted">
-            These entries are caregiver-added and are not part of the current
-            printed prescription.
-          </p>
-        </section>
-      ) : null}
-
       <div className="flex items-baseline justify-between gap-2 px-0.5 pt-0.5">
         <p className="eyebrow">
-          <span className="lang-en">Routine medicines</span>
-          <span className="lang-hi">रोज़ की दवाइयाँ</span>
+          <span className="lang-en">Today’s timeline</span>
+          <span className="lang-hi">आज का क्रम</span>
         </p>
         <p className="text-[11.5px] font-bold text-muted">
           {pending} <span className="lang-en">left to record</span>
@@ -306,37 +285,69 @@ export default async function TodayPage() {
       </div>
 
       <ul className="flex flex-col gap-3">
-        {schedule.map((d) => (
-          <DoseCard
-            key={`${d.medicine.id}-${d.slotKey}`}
-            doseDate={today}
-            medicineId={d.medicine.id}
-            slotKey={d.slotKey}
-            brand={d.medicine.brand}
-            dose={d.medicine.dose}
-            label={d.label}
-            time={d.time}
-            tone={d.medicine.tone}
-            status={d.status}
-            purpose={d.medicine.purpose}
-            prescriptionHi={d.medicine.prescriptionHi}
-            food={d.medicine.food}
-            instruction={d.medicine.instruction}
-            caution={d.medicine.caution}
-            verify={d.medicine.verify}
-            isNext={
-              next
-                ? next.medicine.id === d.medicine.id && next.slotKey === d.slotKey
-                : false
-            }
-            takenClock={d.record?.takenAt ? careClock(new Date(d.record.takenAt)) : null}
-            drift={
-              d.record?.takenAt && d.record.scheduledTime
-                ? driftMinutes(today, d.record.scheduledTime, new Date(d.record.takenAt))
-                : null
-            }
-          />
-        ))}
+        {timeline.map((item) =>
+          item.kind === 'scheduled' ? (
+            <DoseCard
+              key={`${item.dose.medicine.id}-${item.dose.slotKey}`}
+              doseDate={today}
+              medicineId={item.dose.medicine.id}
+              slotKey={item.dose.slotKey}
+              brand={item.dose.medicine.brand}
+              dose={item.dose.medicine.dose}
+              label={item.dose.label}
+              time={item.dose.time}
+              plannedTime={item.dose.plannedTime}
+              intervalHours={item.dose.intervalHours}
+              rollsOver={item.dose.rollsOver}
+              derivedFrom={
+                item.dose.derivedFrom
+                  ? {
+                      label: item.dose.derivedFrom.label,
+                      takenAt: item.dose.derivedFrom.takenAt.toISOString(),
+                    }
+                  : null
+              }
+              tone={item.dose.medicine.tone}
+              status={item.dose.status}
+              purpose={item.dose.medicine.purpose}
+              prescriptionHi={item.dose.medicine.prescriptionHi}
+              food={item.dose.medicine.food}
+              instruction={item.dose.medicine.instruction}
+              caution={item.dose.medicine.caution}
+              verify={item.dose.medicine.verify}
+              isNext={
+                next
+                  ? next.medicine.id === item.dose.medicine.id &&
+                    next.slotKey === item.dose.slotKey
+                  : false
+              }
+              takenClock={
+                item.dose.record?.takenAt
+                  ? careClock(new Date(item.dose.record.takenAt))
+                  : null
+              }
+              drift={
+                item.dose.record?.takenAt && item.dose.record.scheduledTime
+                  ? driftMinutes(
+                      today,
+                      item.dose.record.scheduledTime,
+                      new Date(item.dose.record.takenAt),
+                    )
+                  : null
+              }
+            />
+          ) : (
+            <LoggedDoseRow
+              key={item.entry.record.id}
+              recordId={item.entry.record.id}
+              brand={item.entry.medicine.brand}
+              dose={item.entry.medicine.dose}
+              when={prettyTime(careClock(item.entry.at))}
+              note={item.entry.record.note}
+              isSos={item.entry.record.slotKey.startsWith('sos-')}
+            />
+          ),
+        )}
       </ul>
 
       <SheetTrigger

@@ -25,6 +25,15 @@ page.on('console', (m) => {
 // The app opens straight onto the record — there is nothing to create first.
 await page.goto(BASE, { waitUntil: 'networkidle' })
 
+// The dose-time dialog is the newest dense client component — open it, record
+// through it, and undo, so any hydration drift in it surfaces here.
+await page.getByRole('button', { name: /^Taken$/ }).first().click()
+await page.waitForSelector('[role=dialog]')
+await page.getByRole('button', { name: /^Taken now$/ }).click()
+await page.waitForTimeout(2000)
+await page.getByRole('button', { name: /Taken ✓/ }).first().click()
+await page.waitForTimeout(2000)
+
 // The BP keypad is the densest client component, so exercise it explicitly.
 await page.goto(`${BASE}/logs`, { waitUntil: 'networkidle' })
 for (const [s, d, p] of [

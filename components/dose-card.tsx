@@ -25,7 +25,14 @@ export interface DoseCardProps {
   brand: string
   dose: string
   label: string
+  /** When the dose is due — derived for interval medicines. */
   time: string
+  /** The printed reminder time, shown alongside a derived one. */
+  plannedTime: string
+  intervalHours: number | null
+  derivedFrom: { label: string; takenAt: string } | null
+  /** The interval lands past midnight, so `time` fell back to the reminder. */
+  rollsOver: boolean
   tone: string
   status: DoseStatus
   slotKey: string
@@ -42,27 +49,50 @@ export interface DoseCardProps {
 }
 
 export function DoseCard(props: DoseCardProps) {
-  const { run, pending } = useChrome()
+  const { run, pending, openSheet } = useChrome()
   const pill = STATUS_PILL[props.status]
   const isTaken = props.status === 'taken'
   const isSkipped = props.status === 'skipped'
 
-  function tap(status: 'taken' | 'skipped') {
-    const undoing =
-      (status === 'taken' && isTaken) || (status === 'skipped' && isSkipped)
+  function tapTaken() {
+    // Re-tapping a taken dose undoes it, immediately. Putting a dialog in
+    // front of an undo is the wrong trade — undo is the correction path.
+    if (isTaken) {
+      run(
+        () =>
+          recordDose({
+            medicineId: props.medicineId,
+            slotKey: props.slotKey,
+            doseDate: props.doseDate,
+            status: 'taken',
+          }),
+        'Undone',
+      )
+      return
+    }
+
+    openSheet('dose', {
+      medicineId: props.medicineId,
+      slotKey: props.slotKey,
+      doseDate: props.doseDate,
+      brand: props.brand,
+      dueTime: props.time,
+      intervalHours: props.intervalHours,
+      previousTakenAt: props.derivedFrom?.takenAt ?? null,
+      previousLabel: props.derivedFrom?.label ?? null,
+    })
+  }
+
+  function tapSkip() {
     run(
       () =>
         recordDose({
           medicineId: props.medicineId,
           slotKey: props.slotKey,
           doseDate: props.doseDate,
-          status,
+          status: 'skipped',
         }),
-      undoing
-        ? 'Undone'
-        : status === 'taken'
-          ? `${props.brand} taken ✓`
-          : `${props.brand} skipped`,
+      isSkipped ? 'Undone' : `${props.brand} skipped`,
     )
   }
 
@@ -80,6 +110,23 @@ export function DoseCard(props: DoseCardProps) {
               {prettyTime(props.time)}{' '}
               <span className="text-[11px] font-medium text-muted">· {props.label}</span>
             </p>
+            {props.rollsOver ? (
+              <p className="mt-0.5 text-[11px] font-semibold text-coral">
+                {props.intervalHours} h after the{' '}
+                {props.derivedFrom?.label.toLowerCase()} dose falls after
+                midnight — check the spacing with the treating team.
+              </p>
+            ) : props.derivedFrom ? (
+              <p className="mt-0.5 text-[11px] font-semibold text-teal">
+                {props.intervalHours} h after the{' '}
+                {props.derivedFrom.label.toLowerCase()} dose · reminder{' '}
+                {prettyTime(props.plannedTime)}
+              </p>
+            ) : props.intervalHours ? (
+              <p className="mt-0.5 text-[11px] text-muted">
+                Take about {props.intervalHours} h apart
+              </p>
+            ) : null}
             <p className="mt-0.5 text-[17px] font-extrabold tracking-tight text-navy">
               {props.brand}
             </p>
@@ -191,7 +238,7 @@ export function DoseCard(props: DoseCardProps) {
           <button
             type="button"
             disabled={pending}
-            onClick={() => tap('taken')}
+            onClick={tapTaken}
             aria-pressed={isTaken}
             aria-label={isTaken ? 'Taken ✓' : 'Taken'}
             className={`h-12 flex-1 rounded-[13px] border-[1.5px] text-[15px] font-bold transition active:scale-95 ${
@@ -210,7 +257,7 @@ export function DoseCard(props: DoseCardProps) {
           <button
             type="button"
             disabled={pending}
-            onClick={() => tap('skipped')}
+            onClick={tapSkip}
             aria-pressed={isSkipped}
             aria-label={isSkipped ? 'Skipped ✓' : 'Skip'}
             className={`h-12 flex-1 rounded-[13px] border-[1.5px] text-[15px] font-bold transition active:scale-95 ${

@@ -15,6 +15,13 @@
       "when": 1785235446804,
       "tag": "0001_restore_sites_parity",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785252312795,
+      "tag": "0002_organic_ogun",
+      "breakpoints": true
     }
   ]
 }

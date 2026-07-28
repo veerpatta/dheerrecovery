@@ -69,6 +69,18 @@ for (const med of [
 check('7 scheduled doses', /0\/7 taken/.test(body), body.match(/\d+\/\d+ taken/)?.[0])
 check('prescription date on today', body.includes('28 July 2026'))
 check('bottom nav present', (await page.locator('nav a[href="/logs"]').count()) === 1)
+
+// The floating stack must clear the last item rather than sitting on top of it.
+await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+await page.waitForTimeout(300)
+const tail = await page.locator('main > p').last().boundingBox()
+const fab = await page.getByRole('button', { name: /^Log BP$/ }).last().boundingBox()
+check(
+  'floating buttons clear the last item',
+  tail.y + tail.height <= fab.y + 4,
+  `tail ends ${Math.round(tail.y + tail.height)}, fab starts ${Math.round(fab.y)}`,
+)
+await page.evaluate(() => window.scrollTo(0, 0))
 await page.screenshot({ path: `${shots}/01-today.png`, fullPage: true })
 
 // 2. Verify banner
@@ -76,22 +88,80 @@ await page.getByRole('button', { name: /I checked the new prescription/i }).clic
 await settle()
 check('verify banner clears', !/VERIFY BEFORE FIRST USE/i.test(await text()))
 
-// 3. Mark a dose taken -> persists across reload
+// 3. Mark a dose taken — the time dialog stands in the way now
 await page.getByRole('button', { name: /^Taken$/ }).first().click()
+await page.waitForSelector('[role=dialog]')
+check('taken opens the time dialog', (await page.locator('[role=dialog]').count()) === 1)
+const doseSheet = await page.locator('[role=dialog]').innerText()
+check('time dialog shows the due time', /Due /i.test(doseSheet))
+check('time dialog offers relative chips', /15m ago/.test(doseSheet))
+await page.waitForTimeout(500)
+await page.screenshot({ path: `${shots}/11-dose-time.png` })
+await page.getByRole('button', { name: /^Taken now$/ }).click()
 await settle()
+check('time dialog closes after saving', (await page.locator('[role=dialog]').count()) === 0)
 await page.reload({ waitUntil: 'networkidle' })
 const afterTake = await text()
 check('dose persisted as taken', /1\/7 taken/.test(afterTake), afterTake.match(/\d+\/\d+ taken/)?.[0])
 
-// 4. Undo
+// 4. Undo — still immediate, no dialog in front of a correction
 await page.getByRole('button', { name: /Taken ✓/ }).first().click()
 await settle()
+check('undo does not open a dialog', (await page.locator('[role=dialog]').count()) === 0)
 await page.reload({ waitUntil: 'networkidle' })
 check('undo clears record', /0\/7 taken/.test(await text()))
 await page.getByRole('button', { name: /^Taken$/ }).first().click()
+await page.getByRole('button', { name: /^Taken now$/ }).click()
 await settle()
 
-// 5. SOS drawer
+// 4b. Twelve-hour chain — Lacoset's evening dose follows the morning dose.
+// The anchor is typed in rather than taken from a relative chip: it must be
+// in the past (recordDose rejects futures) AND before noon, so +12h still
+// lands on the same care date instead of taking the roll-over branch.
+const istHour = Number(
+  new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    hour12: false,
+  }).format(new Date()),
+)
+if (istHour < 1) {
+  console.log('SKIP  twelve-hour chain — no pre-noon anchor is in the past yet')
+} else {
+  const anchor = istHour >= 9 ? '08:20' : '00:20'
+  const evening = istHour >= 9 ? '8:20 pm' : '12:20 pm'
+  const lacoset = page.locator('li', { hasText: 'Lacoset 100' }).first()
+  await lacoset.getByRole('button', { name: /^Taken$/ }).click()
+  await page.waitForSelector('[role=dialog]')
+  await page.fill('[aria-label="Time the dose was taken"]', anchor)
+  await page.getByRole('button', { name: /^Save dose time$/ }).click()
+  await settle()
+  await page.reload({ waitUntil: 'networkidle' })
+  const chainText = await text()
+  check(
+    'lacoset evening derives from the morning dose',
+    /12 h after the morning dose · reminder 8:00 pm/i.test(chainText),
+  )
+  check(
+    `lacoset evening moves to ${evening}`,
+    chainText.includes(evening),
+    chainText.match(/\d+:\d+ [ap]m · Evening/)?.[0],
+  )
+  await page.screenshot({ path: `${shots}/12-interval.png`, fullPage: true })
+  // Undo, so the history "Taken 1" assertion later still describes one dose.
+  await lacoset.getByRole('button', { name: /Taken ✓/ }).click()
+  await settle()
+  await page.reload({ waitUntil: 'networkidle' })
+  check(
+    'clearing the anchor restores the printed evening time',
+    !/12 h after the morning dose/i.test(await text()),
+  )
+}
+
+// 5. SOS sheet — now reached from the floating button
+check('one SOS control on screen', (await page.getByRole('button', { name: /^SOS/ }).count()) === 1)
+const sosBox = await page.getByRole('button', { name: /^SOS/ }).boundingBox()
+check('SOS floats above the bottom nav', sosBox.y > 600, `y=${Math.round(sosBox.y)}`)
 await page.getByRole('button', { name: /^SOS/ }).click()
 await page.waitForSelector('text=Outside the routine schedule')
 const sosText = await page.locator('[role=dialog]').innerText()
@@ -100,9 +170,36 @@ for (const m of ['Napra‑D 500/10', 'Zytee Gel LA', 'Dolo', 'Looz syrup', 'ORS 
 }
 await page.waitForTimeout(600) // let the sheet finish sliding up
 await page.screenshot({ path: `${shots}/02-sos.png` })
+
+// 5b. Adding an SOS medicine replaces the SOS sheet rather than stacking on it
+await page.getByRole('button', { name: /^Add SOS medicine$/ }).click()
+await page.waitForSelector('text=Add SOS medicine')
+check('sos add replaces the sos sheet', (await page.locator('[role=dialog]').count()) === 1)
+const addText = await page.locator('[role=dialog]').innerText()
+check('sos add mode hides the reminder time', !/Reminder time/i.test(addText))
 await page.keyboard.press('Escape')
-await page.waitForTimeout(500)
+await page.waitForTimeout(400)
 check('sos drawer closes on Escape', (await page.locator('[role=dialog]').count()) === 0)
+
+// 5c. An SOS dose lands on Today's timeline without moving the N/7 ring
+await page.getByRole('button', { name: /^SOS/ }).click()
+await page.getByRole('button', { name: /^Log SOS dose of Napra/ }).click()
+await settle()
+await page.keyboard.press('Escape')
+await page.goto(BASE, { waitUntil: 'networkidle' })
+const withSos = await text()
+check('sos dose shows on the timeline', /Napra‑D 500\/10/.test(withSos))
+check(
+  'sos dose does not move the ring',
+  /1\/7 taken/.test(withSos),
+  withSos.match(/\d+\/\d+ taken/)?.[0],
+)
+await page.getByRole('button', { name: /^Remove logged dose of Napra/ }).click()
+await settle()
+// Reload rather than reading straight after: the success toast repeats the
+// brand name, so the body text would still match for a couple of seconds.
+await page.reload({ waitUntil: 'networkidle' })
+check('sos log removable', !/Napra‑D 500\/10/.test(await text()))
 
 // 6. Chart
 await page.goto(`${BASE}/chart`, { waitUntil: 'networkidle' })
@@ -127,6 +224,10 @@ check('safety rules', safetyText.includes('Never double a missed dose'))
 
 // 8. BP — entered on the keypad sheet, one tap per digit
 await page.goto(`${BASE}/logs`, { waitUntil: 'networkidle' })
+check(
+  'log bp is the floating button',
+  (await page.getByRole('button', { name: /^Log BP$/ }).count()) === 1,
+)
 const typePad = async (value) => {
   for (const ch of String(value)) await page.click(`[data-bp-key="${ch}"]`)
 }

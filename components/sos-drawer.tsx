@@ -30,7 +30,7 @@ export function SosSheet({
   medicines: MedicineWithSlots[]
   records: DoseRecord[]
 }) {
-  const { run, closeSheet, pending } = useChrome()
+  const { run, closeSheet, openSheet, pending } = useChrome()
   const router = useRouter()
 
   const lastLoggedFor = (medicineId: string) =>
@@ -43,16 +43,32 @@ export function SosSheet({
       title="Outside the routine schedule"
       intro="SOS is deliberately excluded from reminders. Log an item only after it was actually taken — logging does not restart an old instruction."
       footer={
-        <button
-          type="button"
-          onClick={() => {
-            closeSheet()
-            router.push('/safety')
-          }}
-          className="mt-3 w-full text-[12.5px] font-bold text-coral"
-        >
-          Emergency numbers →
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => openSheet('add', { mode: 'sos' })}
+            aria-label="Add SOS medicine"
+            className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-sage py-3.5 text-sm font-bold text-teal transition active:scale-[0.98]"
+          >
+            +{' '}
+            <span className="lang-en" aria-hidden>
+              Add SOS medicine
+            </span>
+            <span className="lang-hi" aria-hidden>
+              SOS दवा जोड़ें
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              closeSheet()
+              router.push('/safety')
+            }}
+            className="mt-3 w-full text-[12.5px] font-bold text-coral"
+          >
+            Emergency numbers →
+          </button>
+        </>
       }
     >
       <ul className="flex flex-col gap-2.5">

@@ -61,6 +61,10 @@ check(
 // Write, verify, then undo so a check never leaves a dose it did not observe.
 const before = Number((await body()).match(/(\d)\/7 taken/)?.[1] ?? 0)
 await page.getByRole('button', { name: /^Taken$/ }).first().click()
+// Tapping Taken opens the time dialog; "Now" is the equivalent of the old
+// immediate record.
+await page.waitForSelector('[role=dialog]')
+await page.getByRole('button', { name: /^Taken now$/ }).click()
 await settle()
 await page.reload({ waitUntil: 'networkidle' })
 check(

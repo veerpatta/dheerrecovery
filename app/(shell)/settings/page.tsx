@@ -7,14 +7,19 @@ import {
   SlotTimeRow,
 } from '@/components/settings-forms'
 import { getHousehold } from '@/lib/household'
-import { getMedicines } from '@/lib/queries'
+import { buildDaySchedule, getDoseRecords, getMedicines } from '@/lib/queries'
+import { careDate } from '@/lib/time'
 
 export const dynamic = 'force-dynamic'
 
 export default async function SettingsPage() {
   const household = await getHousehold()
 
-  const meds = await getMedicines(household.id)
+  const today = careDate()
+  const [meds, records] = await Promise.all([
+    getMedicines(household.id),
+    getDoseRecords(household.id, today, today),
+  ])
   const routine = meds.filter((m) => m.kind === 'routine')
 
   const slots = routine.flatMap((m) =>
@@ -64,8 +69,19 @@ export default async function SettingsPage() {
 
         <AlertLeadChips alertLeadMinutes={household.alertLeadMinutes} />
 
+        {/*
+          Reminders fire against today's *derived* times. Nudging at 8:00 pm
+          for a dose that is due 8:20 pm pushes toward a shorter gap than the
+          prescription intends — the wrong direction for an anti-seizure
+          medicine.
+        */}
         <ReminderRunner
-          slots={slots.map(({ id, brand, label, time }) => ({ id, brand, label, time }))}
+          slots={buildDaySchedule(meds, records, today).map((d) => ({
+            id: `${d.medicine.id}-${d.slotKey}`,
+            brand: d.medicine.brand,
+            label: d.label,
+            time: d.time,
+          }))}
           leadMinutes={household.alertLeadMinutes}
         />
 
@@ -84,6 +100,12 @@ export default async function SettingsPage() {
             Change only the clock reminder — not the printed frequency or dose.
             Betacap is printed for 8:00 AM; other exact clock times are caregiver
             reminders for “morning,” “evening” or “night.”
+          </p>
+          <p className="note mt-1.5">
+            Lacoset and Valprol are spaced about 12 hours apart. Once the morning
+            dose is recorded, the evening dose is due 12 hours after the time it
+            was actually given, and the reminder follows. The times below are the
+            starting point each morning.
           </p>
         </div>
         <ul className="flex flex-col gap-2">

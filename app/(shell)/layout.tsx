@@ -1,9 +1,11 @@
 import Link from 'next/link'
-import { ChromeProvider, SheetTrigger, SyncLabel } from '@/components/chrome'
+import { ChromeProvider, SyncLabel } from '@/components/chrome'
 import { LangToggle } from '@/components/lang-toggle'
 import { NavTabs } from '@/components/nav-tabs'
 import { AddMedicineSheet } from '@/components/add-medicine-sheet'
 import { BpSheet } from '@/components/bp-sheet'
+import { DoseTimeSheet } from '@/components/dose-time-sheet'
+import { Fab } from '@/components/fab'
 import { SosSheet } from '@/components/sos-drawer'
 import { getHousehold } from '@/lib/household'
 import { getBpReadings, getMedicines, getSosRecords } from '@/lib/queries'
@@ -61,6 +63,7 @@ export default async function ShellLayout({
 
           <LangToggle />
 
+          {/* SOS moved to the floating stack — one place per action. */}
           <Link
             href="/settings"
             aria-label="Settings"
@@ -68,27 +71,21 @@ export default async function ShellLayout({
           >
             ⚙
           </Link>
-
-          <SheetTrigger
-            sheet="sos"
-            aria-label={`SOS medicines, ${sos.length} available`}
-            className="flex shrink-0 items-center gap-1.5 rounded-full bg-coral px-3 py-1.5 text-[11px] font-extrabold text-white transition active:scale-95"
-          >
-            SOS
-            <span className="rounded-full bg-white/25 px-1.5">{sos.length}</span>
-          </SheetTrigger>
         </header>
 
-        <main className="flex flex-col gap-3 px-3.5 pt-3.5 pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
+        {/* Bottom padding clears both the nav and the floating stack. */}
+        <main className="flex flex-col gap-3 px-3.5 pt-3.5 pb-[calc(11rem+env(safe-area-inset-bottom))]">
           {children}
         </main>
 
+        <Fab sosCount={sos.length} />
         <NavTabs />
       </div>
 
       <SosSheet medicines={sos} records={sosRecords} />
       <BpSheet band={bandOf(household)} lastReadingAt={readings[0]?.measuredAt ?? null} />
       <AddMedicineSheet />
+      <DoseTimeSheet />
     </ChromeProvider>
   )
 }

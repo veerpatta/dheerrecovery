@@ -1,6 +1,6 @@
 'use server'
 
-import { and, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { db } from '@/db'
@@ -14,6 +14,7 @@ import {
   seizureEvents,
 } from '@/db/schema'
 import { getHousehold } from './household'
+import { dueTimeForSlot } from './queries'
 import { careDate, careInstant } from './time'
 
 /** The app serves one record, so every write resolves it the same way. */
@@ -98,6 +99,53 @@ export async function updateBand(formData: FormData) {
 // ----------------------------------------------------------------- doses ---
 
 /**
+ * Re-derive `scheduledTime` for one medicine's doses on one date after its
+ * anchor moved — the morning dose was recorded, undone, or retimed, so the
+ * evening dose is no longer due when it was.
+ *
+ * Deliberately NOT exported: this file is `'use server'`, so every export
+ * becomes a publicly callable endpoint.
+ */
+async function restampDependentDoses(
+  householdId: string,
+  medicineId: string,
+  doseDate: string,
+) {
+  const [medicine] = await db
+    .select()
+    .from(medicines)
+    .where(eq(medicines.id, medicineId))
+    .limit(1)
+  if (!medicine?.dosingIntervalHours) return
+
+  const slots = await db
+    .select()
+    .from(doseSlots)
+    .where(eq(doseSlots.medicineId, medicineId))
+    .orderBy(asc(doseSlots.sortOrder))
+
+  const dayRecords = await db
+    .select()
+    .from(doseRecords)
+    .where(
+      and(
+        eq(doseRecords.householdId, householdId),
+        eq(doseRecords.medicineId, medicineId),
+        eq(doseRecords.doseDate, doseDate),
+      ),
+    )
+
+  for (const record of dayRecords) {
+    const due = dueTimeForSlot({ ...medicine, slots }, record.slotKey, dayRecords, doseDate)
+    if (!due || due === record.scheduledTime?.slice(0, 5)) continue
+    await db
+      .update(doseRecords)
+      .set({ scheduledTime: due })
+      .where(eq(doseRecords.id, record.id))
+  }
+}
+
+/**
  * Record a routine dose as taken or skipped. Re-tapping the same status
  * clears the record, which is how "Undo" works — a caregiver must always be
  * able to correct a mistaken tap.
@@ -121,13 +169,12 @@ export async function recordDose(
     .limit(1)
   if (!medicine) throw new Error('Medicine not found in this record.')
 
-  const [slot] = await db
+  const slots = await db
     .select()
     .from(doseSlots)
-    .where(
-      and(eq(doseSlots.medicineId, medicine.id), eq(doseSlots.slotKey, input.slotKey)),
-    )
-    .limit(1)
+    .where(eq(doseSlots.medicineId, medicine.id))
+    .orderBy(asc(doseSlots.sortOrder))
+  const slot = slots.find((s) => s.slotKey === input.slotKey)
 
   const [existing] = await db
     .select()
@@ -142,6 +189,27 @@ export async function recordDose(
     )
     .limit(1)
 
+  /*
+   * For an interval medicine the evening dose is due 12 h after the morning
+   * one actually went in, so store *that* as the scheduled time. Storing the
+   * printed 8:00 pm instead would make an 8:20 pm dose — exactly on target —
+   * read as 20 minutes late in the ledger, the on-time score and the report.
+   */
+  const dayRecords = await db
+    .select()
+    .from(doseRecords)
+    .where(
+      and(
+        eq(doseRecords.householdId, h.id),
+        eq(doseRecords.medicineId, medicine.id),
+        eq(doseRecords.doseDate, input.doseDate),
+      ),
+    )
+  const scheduledTime =
+    dueTimeForSlot({ ...medicine, slots }, input.slotKey, dayRecords, input.doseDate) ??
+    slot?.time ??
+    null
+
   const takenAt = input.takenAt ? new Date(input.takenAt) : new Date()
   if (Number.isNaN(takenAt.getTime())) throw new Error('Choose a valid dose time.')
   if (takenAt.getTime() > Date.now() + 60_000) {
@@ -151,6 +219,9 @@ export async function recordDose(
   if (existing) {
     if (existing.status === input.status) {
       await db.delete(doseRecords).where(eq(doseRecords.id, existing.id))
+      // Undoing the morning dose removes the anchor, so the evening reverts
+      // to its printed reminder time.
+      await restampDependentDoses(h.id, medicine.id, input.doseDate)
       refresh()
       return { cleared: true }
     }
@@ -158,6 +229,8 @@ export async function recordDose(
       .update(doseRecords)
       .set({
         status: input.status,
+        // A row flipped from skipped to taken keeps a stale stamp otherwise.
+        scheduledTime,
         takenAt: input.status === 'taken' ? takenAt : null,
         note: input.note ?? null,
       })
@@ -169,12 +242,14 @@ export async function recordDose(
       slotKey: input.slotKey,
       doseDate: input.doseDate,
       status: input.status,
-      scheduledTime: slot?.time ?? null,
+      scheduledTime,
       takenAt: input.status === 'taken' ? takenAt : null,
       note: input.note ?? null,
     })
   }
 
+  // This dose may itself be an anchor for a later one.
+  await restampDependentDoses(h.id, medicine.id, input.doseDate)
   refresh()
   return { cleared: false }
 }
@@ -219,6 +294,8 @@ export async function setDoseTakenAt(input: {
   if (existing.status !== 'taken') throw new Error('Only a taken dose has a time.')
 
   await db.update(doseRecords).set({ takenAt }).where(eq(doseRecords.id, existing.id))
+  // Moving the morning dose moves what the evening dose is spaced from.
+  await restampDependentDoses(h.id, input.medicineId, input.doseDate)
   refresh()
 }
 
@@ -277,6 +354,30 @@ export async function logSosDose(
     takenAt,
     note: input.note ?? null,
   })
+  refresh()
+}
+
+/**
+ * Remove one unscheduled dose log — an SOS dose or a caregiver-added
+ * "taken just now" entry.
+ *
+ * Guarded to those two key shapes on purpose. A scheduled dose has its own
+ * undo (re-tap the same status), and this must never become a second, less
+ * careful way to erase one.
+ */
+export async function deleteDoseLog(recordId: string) {
+  const h = await requireHousehold()
+  const [record] = await db
+    .select()
+    .from(doseRecords)
+    .where(and(eq(doseRecords.id, recordId), eq(doseRecords.householdId, h.id)))
+    .limit(1)
+  if (!record) throw new Error('Entry not found in this record.')
+  if (!/^(sos|manual)-/.test(record.slotKey)) {
+    throw new Error('Scheduled doses are undone from the dose card.')
+  }
+
+  await db.delete(doseRecords).where(eq(doseRecords.id, record.id))
   refresh()
 }
 
