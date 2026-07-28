@@ -8,6 +8,13 @@
       "when": 1785227233342,
       "tag": "0000_clear_nuke",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785235446804,
+      "tag": "0001_restore_sites_parity",
+      "breakpoints": true
     }
   ]
 }

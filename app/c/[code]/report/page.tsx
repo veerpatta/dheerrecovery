@@ -5,6 +5,7 @@ import { bandOf, summarise } from '@/lib/bp'
 import {
   buildDaySchedule,
   findHousehold,
+  getAllMedicines,
   getBpReadings,
   getCareNotes,
   getDoseRecords,
@@ -42,8 +43,9 @@ export default async function ReportPage({
   const to = isDate(sp.to) ? sp.to! : today
   const from = isDate(sp.from) ? sp.from! : addDays(to, -29)
 
-  const [meds, records, readings, seizures, notes] = await Promise.all([
+  const [meds, allMeds, records, readings, seizures, notes] = await Promise.all([
     getMedicines(household.id),
+    getAllMedicines(household.id),
     getDoseRecords(household.id, from, to),
     getBpReadings(household.id, 400),
     getSeizureEvents(household.id),
@@ -53,10 +55,23 @@ export default async function ReportPage({
   const band = bandOf(household)
   const bp = summarise(readings, band, 30)
   const days = dateRange(from, to).reverse()
-  const perDay = days.map((d) => ({ date: d, doses: buildDaySchedule(meds, records, d) }))
+  const perDay = days.map((d) => ({
+    date: d,
+    doses:
+      d >= household.courseStart ? buildDaySchedule(meds, records, d) : [],
+  }))
   const all = perDay.flatMap((d) => d.doses)
-  const taken = all.filter((d) => d.status === 'taken').length
-  const skipped = all.filter((d) => d.status === 'skipped').length
+  const activeIds = new Set(meds.map((m) => m.id))
+  const medById = new Map(allMeds.map((m) => [m.id, m]))
+  const importedRecords = records.filter(
+    (r) => !activeIds.has(r.medicineId) && medById.get(r.medicineId)?.archivedAt,
+  )
+  const taken =
+    all.filter((d) => d.status === 'taken').length +
+    importedRecords.filter((r) => r.status === 'taken').length
+  const skipped =
+    all.filter((d) => d.status === 'skipped').length +
+    importedRecords.filter((r) => r.status === 'skipped').length
   const notRecorded = all.filter((d) => d.status === 'not-recorded').length
 
   const rangeReadings = readings.filter((r) => {
@@ -150,7 +165,7 @@ export default async function ReportPage({
                 <th className="py-2 pr-2 font-semibold">When</th>
                 <th className="py-2 pr-2 font-semibold">BP</th>
                 <th className="py-2 pr-2 font-semibold">Pulse</th>
-                <th className="py-2 font-semibold">Symptoms</th>
+                <th className="py-2 font-semibold">Context / symptoms</th>
               </tr>
             </thead>
             <tbody>
@@ -161,13 +176,63 @@ export default async function ReportPage({
                     {r.systolic}/{r.diastolic}
                   </td>
                   <td className="py-1.5 pr-2">{r.pulse ?? '—'}</td>
-                  <td className="py-1.5">{r.symptoms ?? '—'}</td>
+                  <td className="py-1.5">
+                    {[r.context, r.position, r.arm, r.symptoms]
+                      .filter(Boolean)
+                      .join(' · ') || '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : null}
       </section>
+
+      {importedRecords.length ? (
+        <section className="print-page space-y-3">
+          <h2 className="text-lg font-bold text-navy">
+            Prior prescription appendix
+          </h2>
+          <p className="text-xs leading-relaxed text-muted">
+            Preserved from the earlier Dheer Recovery site and kept separate from
+            the current medicine chart.
+          </p>
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-line text-[10px] tracking-wide text-muted uppercase">
+                <th className="py-2 pr-2 font-semibold">Date</th>
+                <th className="py-2 pr-2 font-semibold">Time</th>
+                <th className="py-2 pr-2 font-semibold">Medicine</th>
+                <th className="py-2 font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {importedRecords.map((record) => {
+                const medicine = medById.get(record.medicineId)
+                return (
+                  <tr key={record.id} className="border-b border-line/60">
+                    <td className="py-1.5 pr-2">{prettyDate(record.doseDate)}</td>
+                    <td className="py-1.5 pr-2">
+                      {record.scheduledTime
+                        ? prettyTime(record.scheduledTime)
+                        : '—'}
+                    </td>
+                    <td className="py-1.5 pr-2 font-medium text-navy">
+                      {medicine?.brand ?? 'Previous medicine'}{' '}
+                      <span className="font-normal text-muted">
+                        {medicine?.dose ?? ''}
+                      </span>
+                    </td>
+                    <td className="py-1.5">
+                      {record.status === 'taken' ? 'Taken' : 'Skipped'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
 
       <section className="print-page space-y-3">
         <h2 className="text-lg font-bold text-navy">3 · Dose ledger</h2>

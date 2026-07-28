@@ -43,9 +43,7 @@ export async function startNewRecord() {
 }
 
 export async function openExistingRecord(formData: FormData) {
-  const raw = String(formData.get('careCode') ?? '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')
+  const raw = String(formData.get('careCode') ?? '').trim()
   if (!isValidCareCode(raw)) {
     return { error: 'That code does not look right. Check it and try again.' }
   }
@@ -94,6 +92,7 @@ export async function updateBand(careCode: string, formData: FormData) {
       bandSystolicHigh: num('bandSystolicHigh', h.bandSystolicHigh),
       bandDiastolicLow: num('bandDiastolicLow', h.bandDiastolicLow),
       bandDiastolicHigh: num('bandDiastolicHigh', h.bandDiastolicHigh),
+      bandConfirmed: formData.get('bandConfirmed') === 'on',
       updatedAt: new Date(),
     })
     .where(eq(households.id, h.id))
@@ -243,8 +242,25 @@ export async function updateSlotTime(
 export async function addCustomMedicine(careCode: string, formData: FormData) {
   const h = await requireHousehold(careCode)
   const brand = String(formData.get('brand') ?? '').trim()
-  const dose = String(formData.get('dose') ?? '').trim()
-  const time = String(formData.get('time') ?? '').trim()
+  const strength = String(formData.get('strength') ?? '').trim()
+  const form = String(formData.get('form') ?? '').trim()
+  const dose =
+    String(formData.get('dose') ?? '').trim() ||
+    [strength, form].filter(Boolean).join(' · ')
+  const note = String(formData.get('notes') ?? '').trim() || null
+  const action = formData.get('action') === 'taken' ? 'taken' : 'add'
+  const frequency = Math.min(3, Math.max(1, Number(formData.get('frequency')) || 1))
+  const courseDaysRaw = Number(formData.get('courseDays'))
+  const courseDays =
+    Number.isFinite(courseDaysRaw) && courseDaysRaw > 0
+      ? Math.min(365, Math.round(courseDaysRaw))
+      : null
+  const legacyTime = String(formData.get('time') ?? '').trim()
+  const times = [1, 2, 3]
+    .slice(0, frequency)
+    .map((i) => String(formData.get(`time${i}`) ?? '').trim())
+    .filter((time) => /^\d{2}:\d{2}$/.test(time))
+  if (!times.length && /^\d{2}:\d{2}$/.test(legacyTime)) times.push(legacyTime)
   if (!brand) throw new Error('Enter the medicine name.')
 
   const catalogId = `custom-${Date.now()}`
@@ -255,8 +271,10 @@ export async function addCustomMedicine(careCode: string, formData: FormData) {
       catalogId,
       brand,
       dose: dose || 'Dose not recorded',
-      kind: time ? 'routine' : 'sos',
-      sosStatus: time ? null : 'previous',
+      form: form || null,
+      courseDays,
+      kind: times.length ? 'routine' : 'sos',
+      sosStatus: times.length ? null : 'previous',
       tone: 'recovery',
       isCustom: true,
       sortOrder: 900,
@@ -267,15 +285,32 @@ export async function addCustomMedicine(careCode: string, formData: FormData) {
     })
     .returning()
 
-  if (time && /^\d{2}:\d{2}$/.test(time)) {
-    await db.insert(doseSlots).values({
+  if (times.length) {
+    await db.insert(doseSlots).values(
+      times.map((time, index) => ({
+        medicineId: med.id,
+        slotKey: `dose-${index + 1}`,
+        time,
+        label: `Caregiver reminder ${index + 1}`,
+        sortOrder: index,
+      })),
+    )
+  }
+
+  if (action === 'taken') {
+    const takenAt = new Date()
+    await db.insert(doseRecords).values({
+      householdId: h.id,
       medicineId: med.id,
-      slotKey: 'am',
-      time,
-      label: 'Caregiver reminder',
+      slotKey: `manual-${takenAt.getTime()}`,
+      doseDate: careDate(takenAt),
+      status: 'taken',
+      takenAt,
+      note,
     })
   }
   refresh(careCode)
+  return { medicineId: med.id, logged: action === 'taken' }
 }
 
 // ------------------------------------------------------------------- bp ----
@@ -286,7 +321,21 @@ export async function logBp(careCode: string, formData: FormData) {
   const diastolic = Number(formData.get('diastolic'))
   const pulseRaw = formData.get('pulse')
   const pulse = pulseRaw ? Number(pulseRaw) : null
-  const symptoms = String(formData.get('symptoms') ?? '').trim() || null
+  const symptomTags = formData
+    .getAll('symptom')
+    .map(String)
+    .map((value) => value.trim())
+    .filter(Boolean)
+  const symptoms =
+    symptomTags.join(', ') ||
+    String(formData.get('symptoms') ?? '').trim() ||
+    null
+  const context = String(formData.get('context') ?? '').trim() || null
+  const position = String(formData.get('position') ?? '').trim() || null
+  const arm = String(formData.get('arm') ?? '').trim() || null
+  const requestedPairId = String(formData.get('pairId') ?? '').trim()
+  const continuePair = formData.get('mode') === 'pair'
+  const pairId = requestedPairId || (continuePair ? crypto.randomUUID() : null)
   const measuredAtRaw = String(formData.get('measuredAt') ?? '')
 
   if (!Number.isFinite(systolic) || systolic < 50 || systolic > 260) {
@@ -302,15 +351,40 @@ export async function logBp(careCode: string, formData: FormData) {
     throw new Error('Reading time cannot be in the future.')
   }
 
-  await db.insert(bpReadings).values({
-    householdId: h.id,
-    systolic: Math.round(systolic),
-    diastolic: Math.round(diastolic),
-    pulse: pulse && Number.isFinite(pulse) ? Math.round(pulse) : null,
-    symptoms,
-    measuredAt,
-  })
+  const [reading] = await db
+    .insert(bpReadings)
+    .values({
+      householdId: h.id,
+      systolic: Math.round(systolic),
+      diastolic: Math.round(diastolic),
+      pulse: pulse && Number.isFinite(pulse) ? Math.round(pulse) : null,
+      symptoms,
+      context,
+      position,
+      arm,
+      pairId,
+      measuredAt,
+    })
+    .returning({
+      id: bpReadings.id,
+      systolic: bpReadings.systolic,
+      diastolic: bpReadings.diastolic,
+    })
   refresh(careCode)
+  const level: 'severe' | 'low' | 'high' | 'range' =
+    systolic > 180 || diastolic > 120
+      ? 'severe'
+      : systolic < h.bandSystolicLow || diastolic < h.bandDiastolicLow
+        ? 'low'
+        : systolic >= h.bandSystolicHigh || diastolic >= h.bandDiastolicHigh
+          ? 'high'
+          : 'range'
+
+  return {
+    reading,
+    pairId: continuePair ? pairId : null,
+    level,
+  }
 }
 
 export async function deleteBp(careCode: string, id: string) {

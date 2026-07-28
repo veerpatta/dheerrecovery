@@ -37,6 +37,7 @@ export interface DoseCardProps {
 export function DoseCard(props: DoseCardProps) {
   const [pending, start] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  const [actualTime, setActualTime] = useState('')
   const pill = STATUS_PILL[props.status]
 
   function tap(status: 'taken' | 'skipped') {
@@ -48,6 +49,12 @@ export function DoseCard(props: DoseCardProps) {
           slotKey: props.slotKey,
           doseDate: props.doseDate,
           status,
+          takenAt:
+            status === 'taken' && actualTime
+              ? new Date(
+                  `${props.doseDate}T${actualTime}:00+05:30`,
+                ).toISOString()
+              : null,
         })
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not save that.')
@@ -93,6 +100,22 @@ export function DoseCard(props: DoseCardProps) {
 
         {error ? <p className="text-xs font-medium text-coral">{error}</p> : null}
 
+        {!isTaken ? (
+          <label className="block space-y-1 rounded-xl bg-paper px-3 py-2">
+            <span className="eyebrow">Actual time (optional)</span>
+            <input
+              type="time"
+              value={actualTime}
+              onChange={(event) => setActualTime(event.target.value)}
+              className="field !py-1.5"
+              aria-label={`Actual dose time for ${props.brand}`}
+            />
+            <span className="block text-[11px] text-muted">
+              Leave blank to record the current time.
+            </span>
+          </label>
+        ) : null}
+
         <div className="flex gap-2">
           <button
             type="button"
@@ -117,12 +140,12 @@ export function DoseCard(props: DoseCardProps) {
             {isSkipped ? 'Skipped ✓' : 'Skip'}
           </button>
         </div>
-        {(isTaken || isSkipped) && (
+        {isTaken || isSkipped ? (
           <p className="text-[11px] text-muted">
             Tap the same button again to undo. Skipping never means doubling the
             next dose.
           </p>
-        )}
+        ) : null}
       </div>
     </li>
   )

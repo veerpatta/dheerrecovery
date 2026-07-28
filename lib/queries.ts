@@ -102,7 +102,10 @@ export async function createHousehold(careCode: string): Promise<Household> {
   return household
 }
 
-export async function getMedicines(householdId: string): Promise<MedicineWithSlots[]> {
+async function loadMedicines(
+  householdId: string,
+  includeArchived: boolean,
+): Promise<MedicineWithSlots[]> {
   const meds = await db
     .select()
     .from(medicines)
@@ -124,8 +127,21 @@ export async function getMedicines(householdId: string): Promise<MedicineWithSlo
   }
 
   return meds
-    .filter((m) => !m.archivedAt)
+    .filter((m) => includeArchived || !m.archivedAt)
     .map((m) => ({ ...m, slots: byMed.get(m.id) ?? [] }))
+}
+
+export async function getMedicines(
+  householdId: string,
+): Promise<MedicineWithSlots[]> {
+  return loadMedicines(householdId, false)
+}
+
+/** Includes archived prescriptions for migrated history, reports and exports. */
+export async function getAllMedicines(
+  householdId: string,
+): Promise<MedicineWithSlots[]> {
+  return loadMedicines(householdId, true)
 }
 
 export type DoseStatus = 'taken' | 'skipped' | 'not-recorded' | 'upcoming'

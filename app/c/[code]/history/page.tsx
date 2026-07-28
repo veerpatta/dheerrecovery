@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import {
   buildDaySchedule,
   findHousehold,
+  getAllMedicines,
   getDoseRecords,
   getMedicines,
 } from '@/lib/queries'
@@ -44,27 +45,41 @@ export default async function HistoryPage({
   const from = isDate(sp.from) ? sp.from! : addDays(to, -13)
   const [lo, hi] = from <= to ? [from, to] : [to, from]
 
-  const [meds, records] = await Promise.all([
+  const [meds, allMeds, records] = await Promise.all([
     getMedicines(household.id),
+    getAllMedicines(household.id),
     getDoseRecords(household.id, lo, hi),
   ])
 
   const days = dateRange(lo, hi).reverse()
   const perDay = days.map((d) => ({
     date: d,
-    doses: buildDaySchedule(meds, records, d),
+    doses:
+      d >= household.courseStart ? buildDaySchedule(meds, records, d) : [],
   }))
 
   const all = perDay.flatMap((d) => d.doses)
-  const taken = all.filter((d) => d.status === 'taken').length
-  const skipped = all.filter((d) => d.status === 'skipped').length
+  const activeIds = new Set(meds.map((m) => m.id))
+  const medById = new Map(allMeds.map((m) => [m.id, m]))
+  const importedRecords = records
+    .filter((r) => !activeIds.has(r.medicineId) && medById.get(r.medicineId)?.archivedAt)
+    .sort((a, b) => {
+      const left = a.takenAt ? +new Date(a.takenAt) : +new Date(a.createdAt)
+      const right = b.takenAt ? +new Date(b.takenAt) : +new Date(b.createdAt)
+      return right - left
+    })
+  const taken =
+    all.filter((d) => d.status === 'taken').length +
+    importedRecords.filter((r) => r.status === 'taken').length
+  const skipped =
+    all.filter((d) => d.status === 'skipped').length +
+    importedRecords.filter((r) => r.status === 'skipped').length
   const notRecorded = all.filter((d) => d.status === 'not-recorded').length
   const pastSlots = taken + skipped + notRecorded
   const completion = pastSlots ? Math.round((taken / pastSlots) * 100) : 0
 
-  const medById = new Map(meds.map((m) => [m.id, m]))
   const sosLogs = records
-    .filter((r) => medById.get(r.medicineId)?.kind === 'sos')
+    .filter((r) => activeIds.has(r.medicineId) && medById.get(r.medicineId)?.kind === 'sos')
     .sort((a, b) => (a.takenAt && b.takenAt ? +new Date(b.takenAt) - +new Date(a.takenAt) : 0))
 
   return (
@@ -96,7 +111,7 @@ export default async function HistoryPage({
           >
             <span className="text-sm font-bold text-navy">Export all to Excel</span>
             <span className="text-xs font-normal text-muted">
-              5 organised worksheets · .xlsx
+              6 organised worksheets · .xlsx
             </span>
           </a>
           <Link
@@ -132,6 +147,77 @@ export default async function HistoryPage({
       </section>
 
       <RangeForm code={code} from={lo} to={hi} />
+
+      {importedRecords.length ? (
+        <section className="card !p-0">
+          <div className="border-b border-line px-4 py-3">
+            <p className="eyebrow">Imported prior prescription</p>
+            <h2 className="mt-1 text-base font-bold text-navy">
+              Previous medicine records preserved
+            </h2>
+            <p className="mt-1 text-xs leading-relaxed text-muted">
+              These entries came from the earlier Dheer Recovery site and remain
+              separate from the current prescription.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[36rem] text-left text-sm">
+              <thead>
+                <tr className="text-[10px] tracking-[0.12em] text-muted uppercase">
+                  <th className="px-4 py-2 font-semibold">Date</th>
+                  <th className="px-4 py-2 font-semibold">Scheduled</th>
+                  <th className="px-4 py-2 font-semibold">Medicine</th>
+                  <th className="px-4 py-2 font-semibold">Status</th>
+                  <th className="px-4 py-2 font-semibold">Recorded</th>
+                </tr>
+              </thead>
+              <tbody>
+                {importedRecords.map((record) => {
+                  const medicine = medById.get(record.medicineId)
+                  return (
+                    <tr key={record.id} className="border-t border-line/70">
+                      <td className="px-4 py-2.5 whitespace-nowrap text-muted">
+                        {prettyDate(record.doseDate)}
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap text-muted">
+                        {record.scheduledTime
+                          ? prettyTime(record.scheduledTime)
+                          : '—'}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className="font-semibold text-navy">
+                          {medicine?.brand ?? 'Previous medicine'}
+                        </span>
+                        <span className="block text-xs text-muted">
+                          {medicine?.dose ?? ''}
+                        </span>
+                      </td>
+                      <td
+                        className={`px-4 py-2.5 font-semibold ${
+                          record.status === 'taken' ? 'text-teal' : 'text-coral'
+                        }`}
+                      >
+                        {record.status === 'taken' ? 'Taken' : 'Skipped'}
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap text-muted">
+                        {record.takenAt
+                          ? new Date(record.takenAt).toLocaleString('en-GB', {
+                              timeZone: 'Asia/Kolkata',
+                              day: '2-digit',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
+                          : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       <section className="space-y-4">
         {perDay.map((day) => {

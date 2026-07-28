@@ -15,7 +15,10 @@ export function generateCareCode(): string {
 }
 
 export function isValidCareCode(code: string): boolean {
-  return /^[A-Z0-9]{16,40}$/.test(code)
+  // Existing Sites records used URL-safe base64 codes. New codes remain the
+  // easier-to-read uppercase format, but old family credentials must continue
+  // to work byte-for-byte after migration.
+  return /^[A-Za-z0-9_-]{20,80}$/.test(code)
 }
 
 /** Chunk into groups of 5 for reading over the phone. */
