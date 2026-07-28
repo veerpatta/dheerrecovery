@@ -8,6 +8,8 @@ Rebuilt from the original browser-only prototype onto **Next.js 15 + Neon
 Postgres**, so the record is shared across every caregiver's phone instead of
 living in one browser's local storage.
 
+**Live:** https://dheerrecovery.vercel.app
+
 > This app supports — it does not replace — the prescription and the treating
 > team. A missing entry does not prove a missed dose. Reminder clock times are
 > a caregiver organiser; only Betacap's 8:00 AM is printed on the prescription.
@@ -111,7 +113,8 @@ functions open many short-lived connections.
 
 ```bash
 npm run build
-DATABASE_URL="postgres://…" scripts/e2e.sh 3111
+DATABASE_URL="postgres://…" scripts/e2e.sh 3111        # local, 38 checks
+ENTRY_URL="https://dheerrecovery.vercel.app/" node scripts/live-check.mjs
 ```
 
 `scripts/smoke.mjs` drives a real browser through the whole app on a 420px
@@ -120,6 +123,10 @@ undoing it, the SOS drawer, every tab, logging BP and seizures and notes,
 editing a reminder time, the printable report, the Excel download, and a 404
 for an unknown code. It also fails the run on any console error or failed
 request.
+
+`scripts/live-check.mjs` runs a shorter version of the same flow against a
+deployed instance, and honours `HTTPS_PROXY` plus a Vercel `?_vercel_share=`
+link so it works against a deployment that still has Deployment Protection on.
 
 ## Medicines in the catalogue
 
