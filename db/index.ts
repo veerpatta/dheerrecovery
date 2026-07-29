@@ -6,6 +6,8 @@ type DB = NeonHttpDatabase<typeof schema>
 
 let instance: DB | null = null
 
+const isNeonUrl = (url: string) => /\.neon\.tech|neon\.build/.test(url)
+
 /**
  * Neon's HTTP driver is used in production (it works on serverless functions
  * with no connection pool to exhaust). Any other Postgres URL — a local
@@ -22,7 +24,7 @@ function connect(): DB {
 
   if (instance) return instance
 
-  if (/\.neon\.tech|neon\.build/.test(url)) {
+  if (isNeonUrl(url)) {
     instance = drizzleNeon(neon(url), { schema })
   } else {
     // Required lazily so the Neon-only production bundle never loads `pg`.
@@ -45,5 +47,20 @@ export const db = new Proxy({} as DB, {
     return Reflect.get(connect() as object, prop, receiver)
   },
 })
+
+/**
+ * Whether `db.batch()` is available — it is a Neon HTTP driver feature, and
+ * the only reason it matters here: that driver sends every query as its own
+ * HTTPS request, so a page that runs six reads pays six round-trips. `batch`
+ * puts them in one. node-postgres holds a real connection and has no such
+ * method, so callers fall back to `Promise.all` there.
+ *
+ * Read from the URL rather than the instance so callers can ask without
+ * forcing a connection during `next build`.
+ */
+export function canBatch(): boolean {
+  const url = process.env.DATABASE_URL
+  return Boolean(url && isNeonUrl(url))
+}
 
 export { schema }

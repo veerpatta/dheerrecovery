@@ -24,6 +24,17 @@ export function ReminderRunner({
   const [permission, setPermission] = useState<NotificationPermission>('default')
   const fired = useRef(new Set<string>())
 
+  /*
+   * `slots` is rebuilt as a fresh array on every server render, so depending on
+   * it directly meant every revalidation — every dose tap, every BP entry —
+   * tore the interval down, built a new one and fired `tick` again immediately.
+   * The signature only changes when a reminder actually changes, and the ref
+   * keeps `tick` reading current values without being a dependency itself.
+   */
+  const signature = slots.map((s) => `${s.id}|${s.time}`).join(',')
+  const slotsRef = useRef(slots)
+  slotsRef.current = slots
+
   useEffect(() => {
     if (typeof Notification !== 'undefined') setPermission(Notification.permission)
   }, [])
@@ -43,7 +54,7 @@ export function ReminderRunner({
       const [h, m] = hm.split(':').map(Number)
       const nowMin = h * 60 + m
 
-      for (const s of slots) {
+      for (const s of slotsRef.current) {
         const [sh, sm] = s.time.slice(0, 5).split(':').map(Number)
         const target = sh * 60 + sm - leadMinutes
         const key = `${day}-${s.id}`
@@ -60,7 +71,7 @@ export function ReminderRunner({
     tick()
     const id = setInterval(tick, 30_000)
     return () => clearInterval(id)
-  }, [permission, slots, leadMinutes])
+  }, [permission, signature, leadMinutes])
 
   async function enable() {
     if (typeof Notification === 'undefined') return

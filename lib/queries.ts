@@ -1,7 +1,8 @@
 import 'server-only'
 import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm'
+import type { BatchItem, BatchResponse } from 'drizzle-orm/batch'
 import { cache } from 'react'
-import { db } from '@/db'
+import { canBatch, db } from '@/db'
 import {
   bpReadings,
   careNotes,
@@ -127,55 +128,121 @@ export async function createHousehold(careCode: string): Promise<Household> {
 }
 
 /**
- * ---------------------------------------------------------------- caching --
+ * -------------------------------------------------------- one round-trip --
  *
  * Every read below is wrapped in React's `cache`, which dedupes it for the
- * life of one request. That matters more than it looks: on Today the shell
- * layout and the page both want the medicine list, and Neon's HTTP driver
- * makes every query its own network round-trip. Rendering Today used to cost
- * ten of them; deduping brings it to six, and the two the medicine list needs
- * now run in parallel rather than one after the other.
+ * life of one request. Deduping alone was not enough, though: Neon's HTTP
+ * driver sends each query as its own HTTPS request, so four deduped reads
+ * still cost four network round-trips — and they were arranged in waves,
+ * because the SOS records could not start until the medicine list came back
+ * and told them which medicine ids were SOS.
  *
+ * So the shell's reads are now issued as a single `db.batch()`. Every screen
+ * goes through the shell layout, which wants the medicine list, the SOS log
+ * and a page of blood-pressure readings on every route, so this is exactly
+ * the set each render needs — nothing loads more than it did before, it just
+ * arrives in one trip instead of three or four.
+ *
+ * The SOS query asks the database which medicines are SOS with a subquery
+ * rather than waiting to be told. That is what makes the batch possible: a
+ * query that depends on another query's result cannot travel with it.
+ *
+ * `Promise.all` on the node-postgres path is not a downgrade — that driver
+ * holds a real connection and pipelines on it, so the round-trip arithmetic
+ * that motivates all of this does not apply there.
+ */
+async function runAll<T extends Readonly<[BatchItem<'pg'>, ...BatchItem<'pg'>[]]>>(
+  queries: T,
+): Promise<BatchResponse<T>> {
+  if (canBatch()) return db.batch(queries)
+  return Promise.all(queries) as Promise<BatchResponse<T>>
+}
+
+/** One page of SOS log rows. The shell asks for 40; nothing asks for more. */
+const SOS_PAGE = 50
+
+/**
+ * Anything a screen asks for fits inside one page of readings, so every screen
+ * shares a single load and slices it. The shell wants the latest reading for
+ * the BP sheet and Today wants two hundred for the sparkline — that was two
+ * round-trips for overlapping rows. The export asks for more than a page and
+ * gets its own query; it is a download, not a screen.
+ */
+const BP_PAGE = 400
+
+interface Core {
+  medicines: MedicineWithSlots[]
+  bp: BpReading[]
+  sos: DoseRecord[]
+}
+
+const loadCore = cache(async (householdId: string): Promise<Core> => {
+  // Not awaited — handed to the batch as a subquery so this travels with the
+  // medicine list rather than waiting for it.
+  const sosMedicineIds = db
+    .select({ id: medicines.id })
+    .from(medicines)
+    .where(and(eq(medicines.householdId, householdId), eq(medicines.kind, 'sos')))
+
+  const [meds, slotRows, bp, sos] = await runAll([
+    db
+      .select()
+      .from(medicines)
+      .where(eq(medicines.householdId, householdId))
+      .orderBy(asc(medicines.sortOrder), asc(medicines.brand)),
+    db
+      .select()
+      .from(doseSlots)
+      .innerJoin(medicines, eq(doseSlots.medicineId, medicines.id))
+      .where(eq(medicines.householdId, householdId))
+      .orderBy(asc(doseSlots.sortOrder)),
+    db
+      .select()
+      .from(bpReadings)
+      .where(eq(bpReadings.householdId, householdId))
+      .orderBy(desc(bpReadings.measuredAt))
+      .limit(BP_PAGE),
+    db
+      .select()
+      .from(doseRecords)
+      .where(
+        and(
+          eq(doseRecords.householdId, householdId),
+          inArray(doseRecords.medicineId, sosMedicineIds),
+        ),
+      )
+      .orderBy(desc(doseRecords.createdAt))
+      .limit(SOS_PAGE),
+  ] as const)
+
+  const byMed = new Map<string, (typeof doseSlots.$inferSelect)[]>()
+  for (const row of slotRows) {
+    const list = byMed.get(row.dose_slots.medicineId) ?? []
+    list.push(row.dose_slots)
+    byMed.set(row.dose_slots.medicineId, list)
+  }
+
+  return {
+    medicines: meds.map((m) => ({ ...m, slots: byMed.get(m.id) ?? [] })),
+    bp,
+    sos,
+  }
+})
+
+/**
  * The archived/active split is a filter over one cached load, not a second
  * query — History and the report ask for both lists on the same request.
  */
-const loadMedicines = cache(
-  async (householdId: string): Promise<MedicineWithSlots[]> => {
-    const [meds, slots] = await Promise.all([
-      db
-        .select()
-        .from(medicines)
-        .where(eq(medicines.householdId, householdId))
-        .orderBy(asc(medicines.sortOrder), asc(medicines.brand)),
-      db
-        .select()
-        .from(doseSlots)
-        .innerJoin(medicines, eq(doseSlots.medicineId, medicines.id))
-        .where(eq(medicines.householdId, householdId))
-        .orderBy(asc(doseSlots.sortOrder)),
-    ])
-
-    const byMed = new Map<string, (typeof doseSlots.$inferSelect)[]>()
-    for (const row of slots) {
-      const list = byMed.get(row.dose_slots.medicineId) ?? []
-      list.push(row.dose_slots)
-      byMed.set(row.dose_slots.medicineId, list)
-    }
-
-    return meds.map((m) => ({ ...m, slots: byMed.get(m.id) ?? [] }))
-  },
-)
-
 export const getMedicines = cache(
   async (householdId: string): Promise<MedicineWithSlots[]> =>
-    (await loadMedicines(householdId)).filter((m) => !m.archivedAt),
+    (await loadCore(householdId)).medicines.filter((m) => !m.archivedAt),
 )
 
 /** Includes archived prescriptions for migrated history, reports and exports. */
 export async function getAllMedicines(
   householdId: string,
 ): Promise<MedicineWithSlots[]> {
-  return loadMedicines(householdId)
+  return (await loadCore(householdId)).medicines
 }
 
 export type DoseStatus = 'taken' | 'skipped' | 'not-recorded' | 'upcoming'
@@ -372,18 +439,18 @@ export const getDoseRecords = cache(
 )
 
 /**
- * The SOS medicines are already in the cached medicine list, so this no longer
- * asks the database which ones they are — it reads them off the load the shell
- * has done anyway. Archived SOS entries stay in scope: their past doses are
- * still part of the record.
+ * Archived SOS entries stay in scope: their past doses are still part of the
+ * record, which is why the subquery filters on `kind` alone.
  */
-export const getSosRecords = cache(
-  async (householdId: string, limit = 50): Promise<DoseRecord[]> => {
-    const sosIds = (await loadMedicines(householdId))
-      .filter((m) => m.kind === 'sos')
+export async function getSosRecords(
+  householdId: string,
+  limit = SOS_PAGE,
+): Promise<DoseRecord[]> {
+  if (limit > SOS_PAGE) {
+    const sosIds = (await loadCore(householdId))
+      .medicines.filter((m) => m.kind === 'sos')
       .map((m) => m.id)
     if (!sosIds.length) return []
-
     return db
       .select()
       .from(doseRecords)
@@ -395,34 +462,24 @@ export const getSosRecords = cache(
       )
       .orderBy(desc(doseRecords.createdAt))
       .limit(limit)
-  },
-)
-
-/**
- * Anything a screen asks for fits inside one page of readings, so every screen
- * shares a single load and slices it. The shell wants the latest reading for
- * the BP sheet and Today wants two hundred for the sparkline — that was two
- * round-trips for overlapping rows. The export asks for more than a page and
- * gets its own query; it is a download, not a screen.
- */
-const BP_PAGE = 400
-
-const loadBpReadings = cache(
-  async (householdId: string, limit: number): Promise<BpReading[]> =>
-    db
-      .select()
-      .from(bpReadings)
-      .where(eq(bpReadings.householdId, householdId))
-      .orderBy(desc(bpReadings.measuredAt))
-      .limit(limit),
-)
+  }
+  const page = (await loadCore(householdId)).sos
+  return page.length > limit ? page.slice(0, limit) : page
+}
 
 export async function getBpReadings(
   householdId: string,
   limit = BP_PAGE,
 ): Promise<BpReading[]> {
-  if (limit > BP_PAGE) return loadBpReadings(householdId, limit)
-  const page = await loadBpReadings(householdId, BP_PAGE)
+  if (limit > BP_PAGE) {
+    return db
+      .select()
+      .from(bpReadings)
+      .where(eq(bpReadings.householdId, householdId))
+      .orderBy(desc(bpReadings.measuredAt))
+      .limit(limit)
+  }
+  const page = (await loadCore(householdId)).bp
   return page.length > limit ? page.slice(0, limit) : page
 }
 

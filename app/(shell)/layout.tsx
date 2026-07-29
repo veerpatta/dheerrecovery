@@ -2,11 +2,8 @@ import Link from 'next/link'
 import { ChromeProvider, SyncLabel } from '@/components/chrome'
 import { LangToggle } from '@/components/lang-toggle'
 import { NavTabs } from '@/components/nav-tabs'
-import { AddMedicineSheet } from '@/components/add-medicine-sheet'
-import { BpSheet } from '@/components/bp-sheet'
-import { DoseTimeSheet } from '@/components/dose-time-sheet'
 import { Fab } from '@/components/fab'
-import { SosSheet } from '@/components/sos-drawer'
+import { SheetHost } from '@/components/sheet-host'
 import { getHousehold } from '@/lib/household'
 import { getBpReadings, getMedicines, getSosRecords } from '@/lib/queries'
 import { bandOf } from '@/lib/bp'
@@ -89,10 +86,12 @@ export default async function ShellLayout({
         <NavTabs />
       </div>
 
-      <SosSheet medicines={sos} records={sosRecords} />
-      <BpSheet band={bandOf(household)} lastReadingAt={readings[0]?.measuredAt ?? null} />
-      <AddMedicineSheet />
-      <DoseTimeSheet />
+      <SheetHost
+        sos={sos}
+        sosRecords={sosRecords}
+        band={bandOf(household)}
+        lastReadingAt={readings[0]?.measuredAt ?? null}
+      />
     </ChromeProvider>
   )
 }

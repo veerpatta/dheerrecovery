@@ -129,15 +129,28 @@ export function ChromeProvider({ children }: { children: ReactNode }) {
   const [sync, setSync] = useState<Sync>('idle')
   const [doses, setDoses] = useState<Record<string, OptimisticDose>>({})
   const [pending, startTransition] = useTransition()
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([])
+  const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
 
+  /*
+   * Handles are dropped as they fire. This used to be an array that only ever
+   * grew — every toast and every sync badge left a dead handle behind, for the
+   * whole of a caregiving day on a tab that is never closed.
+   */
   const after = useCallback((ms: number, fn: () => void) => {
-    timers.current.push(setTimeout(fn, ms))
+    const set = timers.current
+    const id = setTimeout(() => {
+      set.delete(id)
+      fn()
+    }, ms)
+    set.add(id)
   }, [])
 
   useEffect(() => {
-    const list = timers.current
-    return () => list.forEach(clearTimeout)
+    const set = timers.current
+    return () => {
+      set.forEach(clearTimeout)
+      set.clear()
+    }
   }, [])
 
   const notify = useCallback(

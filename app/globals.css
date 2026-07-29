@@ -557,15 +557,6 @@ a:hover {
     opacity: 1;
   }
 }
-@keyframes nowPulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
-  }
-}
 
 @media (prefers-reduced-motion: no-preference) {
   @supports (animation-timeline: view()) {
@@ -588,9 +579,13 @@ a:hover {
       animation-range: entry 0% entry 60%;
     }
   }
-  .rail-now-dot {
-    animation: nowPulse 2.4s ease-in-out infinite;
-  }
+  /*
+   * The "Now" dot used to pulse forever. An infinite animation means the page
+   * never reaches compositor idle — the phone keeps waking to repaint a dot
+   * long after the caregiver has stopped looking at it, which is exactly the
+   * background cost that makes everything else on screen feel less responsive.
+   * The marker still reads: it has its own colour, size and label.
+   */
 }
 
 /* Scroll regions inside the shell hide their bars, as a native app would. */

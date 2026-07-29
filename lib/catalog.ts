@@ -207,6 +207,32 @@ export const CATALOG: CatalogMedicine[] = [
       'Ask the treating team what symptom triggers SOS use, the minimum gap, and the maximum tablets in 24 hours.',
   },
   {
+    id: 'centnil-t',
+    brand: 'Centnil T',
+    generic: 'Blood-pressure tablet · composition not captured',
+    dose: '1 tablet · strength not printed',
+    form: 'Tablet',
+    purpose: 'SOS use for a high blood-pressure reading',
+    prescription: 'SOS only · confirm the triggering reading before giving',
+    prescriptionHi: 'केवल SOS · देने से पहले रीडिंग की पुष्टि करें',
+    courseDays: null,
+    slots: [],
+    tone: 'bp',
+    kind: 'sos',
+    sosStatus: 'current',
+    symptom: 'High blood pressure',
+    food: 'Food timing was not captured. Ask the treating team whether it should be given with or after food.',
+    prescribedAt: 'Added by caregiver · not transcribed from the 28 July sheet',
+    doctorNote:
+      'The strength, the reading that triggers a dose, the minimum gap and the daily maximum were not recorded when this was added.',
+    instruction:
+      'Take a blood-pressure reading first and log it, so the reading that prompted the dose sits beside it in the record. Log the dose only after it was actually given.',
+    caution:
+      'Do not repeat without the treating team’s advice, and do not combine with another blood-pressure tablet unless they have said to. Urgent review for chest pain, breathlessness, one-sided weakness, slurred speech, a severe headache or fainting.',
+    verify:
+      'Confirm the strength, the blood-pressure reading that triggers a dose, the minimum gap and the maximum tablets in 24 hours with the treating team.',
+  },
+  {
     id: 'zytee-gel-la',
     brand: 'Zytee Gel LA',
     generic: 'Previous mouth-gel instruction · ingredients not printed on this sheet',

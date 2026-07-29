@@ -14,17 +14,19 @@ export const dynamic = 'force-dynamic'
  * Inter carries no Devanagari, so the Hindi chrome gets its own face — the
  * app renders Hindi on every screen.
  */
+/*
+ * One `src`, deliberately. This used to list latin and latin-ext as two
+ * entries, which looks like a charset split but is not one: `next/font/local`
+ * emits them as two @font-face rules with the same family, weight and style
+ * and no `unicode-range`, so the last simply wins and the other is dead
+ * weight. The winner was latin-ext, at 85 KB against latin's 48 KB — the app
+ * was paying 37 KB extra on the font that gates first paint of every label,
+ * for glyphs it never renders. A sweep of the source found no character in
+ * U+0100-024F; the Hindi text has its own face below, and the few symbols
+ * (✓ ⚑ ⚙ →) are outside both subsets and fall back either way.
+ */
 const inter = localFont({
-  src: [
-    {
-      path: '../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2',
-      style: 'normal',
-    },
-    {
-      path: '../node_modules/@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2',
-      style: 'normal',
-    },
-  ],
+  src: '../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2',
   weight: '100 900',
   variable: '--font-inter',
   display: 'swap',
