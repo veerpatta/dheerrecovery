@@ -16,6 +16,7 @@ export function LoggedDoseRow({
   recordId,
   brand,
   dose,
+  purpose,
   when,
   note,
   isSos,
@@ -23,6 +24,8 @@ export function LoggedDoseRow({
   recordId: string
   brand: string
   dose: string
+  /** What the medicine is for — on the card, like every scheduled dose. */
+  purpose: string | null
   /** Already formatted in the care timezone. */
   when: string
   note: string | null
@@ -32,7 +35,9 @@ export function LoggedDoseRow({
 
   return (
     <li className="rail-row reveal" data-kind="logged" data-past="true">
-      <p className="rail-time">{when}</p>
+      <div className="rail-time">
+        <p className="rail-clock">{when}</p>
+      </div>
       <span className="rail-node" aria-hidden>
         <span className={`node ${isSos ? 'node-sos' : 'node-added'}`} />
       </span>
@@ -55,6 +60,7 @@ export function LoggedDoseRow({
                 · {isSos ? 'logged' : 'caregiver entry'}
               </span>
             </p>
+            {purpose ? <p className="dose-purpose">{purpose}</p> : null}
             {note ? <p className="mt-1 text-[11.5px] text-muted">{note}</p> : null}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">

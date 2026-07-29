@@ -49,11 +49,13 @@
  * var() inside @layer components — pruned, the grid collapses to `0px 0px 1fr`.
  *
  * The gutter is sized for "12:20 pm", the longest time this page prints — it
- * measures 60px at this weight, so 62 leaves a little headroom. It must never
+ * measures 60px at this weight, so 62 left a little headroom. It must never
  * wrap: the smoke test asserts the time appears contiguously in innerText.
+ * A recorded dose adds a second, much smaller line ("due 12:20 pm") under the
+ * clock when the two disagree, which is what the extra 6px buys.
  */
 :root {
-  --rail-gutter: 62px;
+  --rail-gutter: 68px;
   --rail-gap: 6px;
   --rail-node: 16px;
   --rail-space: 10px;
@@ -164,14 +166,32 @@ a:hover {
     padding-bottom: 0;
   }
 
+  /*
+   * The gutter carries what actually happened. For a recorded dose `.rail-clock`
+   * is the time it was given and `.rail-sub` the printed time it was due, shown
+   * only when they differ — a dose at 8:40 reads as 8:40 on the rail, with
+   * "due 8:00 am" underneath rather than the other way round.
+   */
   .rail-time {
-    @apply pt-[9px] text-right text-[12px] leading-none font-extrabold
-           tracking-[-0.01em] whitespace-nowrap text-navy tabular-nums;
+    @apply flex flex-col items-end gap-[3px] pt-[9px] text-right;
   }
-  .rail-row[data-status='taken'] .rail-time,
-  .rail-row[data-status='skipped'] .rail-time,
-  .rail-row[data-kind='logged'] .rail-time {
+  .rail-clock {
+    @apply text-[12px] leading-none font-extrabold tracking-[-0.01em]
+           whitespace-nowrap text-navy tabular-nums;
+  }
+  .rail-sub {
+    @apply text-[9px] leading-none font-semibold tracking-[-0.01em]
+           whitespace-nowrap text-muted tabular-nums;
+  }
+  .rail-row[data-status='taken'] .rail-clock,
+  .rail-row[data-status='skipped'] .rail-clock,
+  .rail-row[data-kind='logged'] .rail-clock {
     @apply text-muted;
+  }
+  /* The time a dose was actually given is the fact of the day, so it keeps
+     full weight even though the row has settled. */
+  .rail-row[data-status='taken'] .rail-clock {
+    @apply text-teal-deep;
   }
 
   .rail-node {
@@ -257,6 +277,71 @@ a:hover {
   .rail-card[data-status='skipped'] {
     background: var(--color-coral-soft);
     border-color: var(--color-coral-line);
+  }
+  /* The one dose to act on lifts off the rail. A ring rather than a heavier
+     border, so it composes with whichever status wash is underneath. */
+  .rail-card[data-focus='true'] {
+    box-shadow:
+      0 0 0 2px #fff,
+      0 0 0 3.5px var(--color-teal),
+      0 6px 18px #192d3914;
+  }
+
+  /*
+   * ------------------------------------------------------ card basics row --
+   * What the medicine is for, and how to give it, on the face of every card.
+   * These used to sit inside the collapsed disclosure, which meant a timeline
+   * of seven brand names told a stand-in caregiver nothing at a glance.
+   */
+  /* Three lines holds every purpose the prescription carries. The clamp is a
+     guard against a caregiver-added medicine with an essay in it, not a
+     summary — nothing in the catalogue is actually cut. */
+  .dose-purpose {
+    @apply mt-1.5 text-[12px] leading-[1.45] text-ink/80;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .meta-row {
+    @apply mt-1.5 flex flex-wrap items-center gap-1;
+  }
+  .meta-chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-line
+           bg-white/70 px-2 py-[3px] text-[10.5px] font-semibold text-muted;
+  }
+  /* A hedged source ("as directed", "not printed") must not look like an
+     instruction, so it is tinted as something still to confirm. */
+  .meta-chip[data-unsure='true'] {
+    border-color: var(--color-amber-line);
+    background: #fff;
+    color: var(--color-amber-ink);
+  }
+
+  /*
+   * --------------------------------------------------------- dose stamp --
+   * What was recorded, replacing the two big buttons once there is no
+   * decision left to make. The whole strip is the time editor's hit area.
+   */
+  .dose-stamp {
+    @apply relative mt-2 flex flex-wrap items-baseline gap-x-1.5 gap-y-1
+           rounded-[10px] bg-white/70 px-2.5 py-2;
+  }
+  .dose-stamp-skipped {
+    @apply items-center bg-white/60;
+  }
+  .dose-stamp-key {
+    @apply text-[10px] font-bold tracking-[0.1em] text-muted uppercase;
+  }
+  .dose-stamp-edit {
+    @apply ml-auto inline-flex shrink-0 items-center gap-1 self-center
+           rounded-full border border-line bg-white px-2 py-[3px]
+           text-[10px] font-bold text-muted;
+  }
+  .drift-chip {
+    @apply inline-flex items-center rounded-full px-1.5 py-[2px]
+           text-[10.5px] font-bold;
   }
 
   /* Chip row used by the 7/14/30 window and range selectors. */

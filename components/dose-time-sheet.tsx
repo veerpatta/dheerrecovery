@@ -142,8 +142,9 @@ export function DoseTimeSheet() {
       ) : null}
 
       <p className="mt-2.5 text-[11px] leading-relaxed text-muted">
-        A time in the future is not accepted. You can change it afterwards from
-        the dose card, or tap Taken again to undo.
+        A time in the future is not accepted. Once saved, tap the time on the
+        dose card to correct it — the Taken and Skip buttons step aside, so
+        there is nothing left to tap twice by accident.
       </p>
     </Sheet>
   )

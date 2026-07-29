@@ -88,6 +88,20 @@ await page.getByRole('button', { name: /I checked the new prescription/i }).clic
 await settle()
 check('verify banner clears', !/VERIFY BEFORE FIRST USE/i.test(await text()))
 
+// 2b. Every card carries its basics without being opened
+const firstCard = page.locator('li', { hasText: 'Pantocid‑DSR 40/30' }).first()
+const firstCardText = await firstCard.innerText()
+check(
+  'card shows what the medicine is for, unopened',
+  /Reduces stomach acid/i.test(firstCardText),
+)
+check('card shows the category chip', /Recovery/i.test(firstCardText))
+check('card shows a food rule chip', /Before food/i.test(firstCardText))
+check(
+  'long clinical text stays behind the disclosure',
+  !/heart rhythm/i.test(firstCardText),
+)
+
 // 3. Mark a dose taken — the time dialog stands in the way now
 await page.getByRole('button', { name: /^Taken$/ }).first().click()
 await page.waitForSelector('[role=dialog]')
@@ -104,12 +118,28 @@ await page.reload({ waitUntil: 'networkidle' })
 const afterTake = await text()
 check('dose persisted as taken', /1\/7 taken/.test(afterTake), afterTake.match(/\d+\/\d+ taken/)?.[0])
 
-// 4. Undo — still immediate, no dialog in front of a correction
-await page.getByRole('button', { name: /Taken ✓/ }).first().click()
+// 4. A recorded dose offers no decision — the buttons step aside entirely,
+//    and the correction lives behind the disclosure instead.
+const takenCard = page.locator('li', { hasText: 'Pantocid‑DSR 40/30' }).first()
+check(
+  'taken card drops the Taken button',
+  (await takenCard.getByRole('button', { name: /^Taken$/ }).count()) === 0,
+)
+check(
+  'taken card drops the Skip button',
+  (await takenCard.getByRole('button', { name: /^Skip$/ }).count()) === 0,
+)
+check('taken card has no undo', !/undo/i.test(await takenCard.innerText()))
+check('taken card stamps the time it went in', /Taken at/i.test(await takenCard.innerText()))
+await takenCard.locator('summary').click()
+await page.waitForTimeout(250)
+const correction = takenCard.getByRole('button', { name: /^Remove the taken entry for Pantocid/ })
+check('correction lives behind the disclosure', (await correction.count()) === 1)
+await correction.click()
 await settle()
-check('undo does not open a dialog', (await page.locator('[role=dialog]').count()) === 0)
+check('correcting does not open a dialog', (await page.locator('[role=dialog]').count()) === 0)
 await page.reload({ waitUntil: 'networkidle' })
-check('undo clears record', /0\/7 taken/.test(await text()))
+check('correction clears the record', /0\/7 taken/.test(await text()))
 await page.getByRole('button', { name: /^Taken$/ }).first().click()
 await page.getByRole('button', { name: /^Taken now$/ }).click()
 await settle()
@@ -147,9 +177,22 @@ if (istHour < 1) {
     chainText.includes(evening),
     chainText.match(/\d+:\d+ [ap]m · Evening/)?.[0],
   )
+  // The rail itself moves with the dose, and says what it moved from.
+  const anchorPretty = anchor === '08:20' ? '8:20 am' : '12:20 am'
+  const anchorDue = 'due 8:00 am' // the printed morning reminder, either way
+  const lacosetText = await lacoset.innerText()
+  check(
+    `morning lacoset sits at ${anchorPretty} on the rail`,
+    lacosetText.includes(anchorPretty),
+    lacosetText.split('\n').slice(0, 2).join(' · '),
+  )
+  check('rail keeps the printed time as a subtitle', lacosetText.includes(anchorDue))
   await page.screenshot({ path: `${shots}/12-interval.png`, fullPage: true })
-  // Undo, so the history "Taken 1" assertion later still describes one dose.
-  await lacoset.getByRole('button', { name: /Taken ✓/ }).click()
+  // Clear the anchor, so the history "Taken 1" assertion later still describes
+  // one dose. The only way back is the correction inside the disclosure.
+  await lacoset.locator('summary').click()
+  await page.waitForTimeout(250)
+  await lacoset.getByRole('button', { name: /^Remove the taken entry for Lacoset/ }).click()
   await settle()
   await page.reload({ waitUntil: 'networkidle' })
   check(

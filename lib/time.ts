@@ -148,3 +148,24 @@ export function formatDrift(mins: number): string {
   if (mins === 0) return 'on time'
   return `${mins > 0 ? '+' : '−'}${formatGap(mins)} ${mins > 0 ? 'late' : 'early'}`
 }
+
+/**
+ * How far off the due time a dose landed, as three buckets rather than a
+ * number. Ten minutes either side of a reminder is not a caregiver's problem
+ * and must not be coloured like one; beyond about an hour it is worth the eye
+ * catching on, which is where the amber chip earns its place.
+ */
+export type DriftBand = 'on-time' | 'close' | 'off'
+
+export function driftBand(mins: number): DriftBand {
+  const abs = Math.abs(mins)
+  if (abs <= 10) return 'on-time'
+  if (abs <= 60) return 'close'
+  return 'off'
+}
+
+/** "+20m late" trimmed to "20m late" — the sign is already carried by the word. */
+export function shortDrift(mins: number): string {
+  if (Math.abs(mins) <= 10) return 'on time'
+  return `${formatGap(mins)} ${mins > 0 ? 'late' : 'early'}`
+}

@@ -15,6 +15,7 @@ import {
   careDate,
   careMinutes,
   driftMinutes,
+  formatGap,
   minutesOf,
   prettyDate,
   prettyDateTime,
@@ -45,6 +46,14 @@ export default async function TodayPage() {
   const next = schedule.find((d) => d.status === 'upcoming')
 
   /*
+   * The one dose to act on. A dose that is already due outranks the next one
+   * coming — the caregiver's attention belongs on the tablet that should be in
+   * a hand right now, not on the one at nine o'clock.
+   */
+  const dueNow = schedule.find((d) => d.status === 'not-recorded')
+  const actionable = dueNow ?? next
+
+  /*
    * The day as it actually happened: the seven scheduled slots plus every
    * unscheduled dose that was logged, in one list ordered by time. SOS rows
    * are merged into the *view* only — they never enter `schedule`, which is
@@ -68,11 +77,23 @@ export default async function TodayPage() {
   // clock, and nothing to mismatch on hydration.
   const nowMinutes = careMinutes()
   const nowLabel = prettyTime(careClock())
+  const minutesToNext = next ? Math.max(0, minutesOf(next.time) - nowMinutes) : null
+
+  /*
+   * A recorded dose sits at the time it actually went in, not at the time it
+   * was meant to. An 8:00 tablet given at 8:40 that stayed pinned above the
+   * 8:20 one made the rail disagree with the day it is describing — the times
+   * were fixed, so the order was a fiction.
+   */
+  const sortMinutes = (dose: (typeof schedule)[number]) =>
+    dose.status === 'taken' && dose.record?.takenAt
+      ? careMinutes(new Date(dose.record.takenAt))
+      : minutesOf(dose.time)
 
   const timeline: TimelineItem[] = [
     ...schedule.map((dose) => ({
       kind: 'scheduled' as const,
-      minutes: minutesOf(dose.time),
+      minutes: sortMinutes(dose),
       dose,
     })),
     ...logged.map((entry) => ({
@@ -167,9 +188,19 @@ export default async function TodayPage() {
             {taken}/{schedule.length} taken
           </p>
           <p className="text-xs text-muted">{prettyDate(today)}</p>
+          {/*
+            One line, and it names the dose rather than counting them. "2 to
+            review" left a caregiver to go and find which two; a due dose is
+            called out ahead of the next upcoming one, because that is the
+            tablet that should be in a hand now.
+          */}
           <p
-            className={`inline-flex self-start rounded-full px-2.5 py-1 text-[11.5px] font-bold ${
-              allDone ? 'bg-teal text-white' : 'bg-mint text-teal'
+            className={`inline-flex self-start rounded-full px-2.5 py-1 text-[11.5px] leading-snug font-bold ${
+              allDone
+                ? 'bg-teal text-white'
+                : dueNow
+                  ? 'bg-amber-soft text-amber-ink'
+                  : 'bg-mint text-teal'
             }`}
           >
             {allDone ? (
@@ -177,11 +208,18 @@ export default async function TodayPage() {
                 <span className="lang-en">All {schedule.length} recorded ✓</span>
                 <span className="lang-hi">सभी {schedule.length} दर्ज ✓</span>
               </>
+            ) : dueNow ? (
+              <>
+                <span className="lang-en">Due now</span>
+                <span className="lang-hi">अभी देय</span>: {dueNow.medicine.brand} ·{' '}
+                {prettyTime(dueNow.time)}
+              </>
             ) : next ? (
               <>
                 <span className="lang-en">Next</span>
                 <span className="lang-hi">अगली</span>: {next.medicine.brand} ·{' '}
                 {prettyTime(next.time)}
+                {minutesToNext !== null ? ` · in ${formatGap(minutesToNext)}` : ''}
               </>
             ) : (
               <>
@@ -308,7 +346,9 @@ export default async function TodayPage() {
               className="rail-row reveal"
               data-past="true"
             >
-              <p className="rail-time text-teal-deep">{nowLabel}</p>
+              <div className="rail-time">
+                <p className="rail-clock text-teal-deep">{nowLabel}</p>
+              </div>
               <span className="rail-node" aria-hidden>
                 <span className="node node-now rail-now-dot" />
               </span>
@@ -327,6 +367,7 @@ export default async function TodayPage() {
               medicineId={item.dose.medicine.id}
               slotKey={item.dose.slotKey}
               brand={item.dose.medicine.brand}
+              generic={item.dose.medicine.generic}
               dose={item.dose.medicine.dose}
               label={item.dose.label}
               time={item.dose.time}
@@ -350,10 +391,15 @@ export default async function TodayPage() {
               caution={item.dose.medicine.caution}
               verify={item.dose.medicine.verify}
               isNext={
-                next
-                  ? next.medicine.id === item.dose.medicine.id &&
-                    next.slotKey === item.dose.slotKey
+                actionable
+                  ? actionable.medicine.id === item.dose.medicine.id &&
+                    actionable.slotKey === item.dose.slotKey
                   : false
+              }
+              overdueMinutes={
+                item.dose.status === 'not-recorded'
+                  ? Math.max(0, nowMinutes - minutesOf(item.dose.time))
+                  : null
               }
               takenClock={
                 item.dose.record?.takenAt
@@ -376,6 +422,7 @@ export default async function TodayPage() {
               recordId={item.entry.record.id}
               brand={item.entry.medicine.brand}
               dose={item.entry.medicine.dose}
+              purpose={item.entry.medicine.purpose}
               when={prettyTime(careClock(item.entry.at))}
               note={item.entry.record.note}
               isSos={item.entry.record.slotKey.startsWith('sos-')}

@@ -146,9 +146,10 @@ async function restampDependentDoses(
 }
 
 /**
- * Record a routine dose as taken or skipped. Re-tapping the same status
- * clears the record, which is how "Undo" works — a caregiver must always be
- * able to correct a mistaken tap.
+ * Record a routine dose as taken or skipped. Re-sending the status a record
+ * already holds clears it — that is the correction path behind "Remove this
+ * entry" on the dose card. It is deliberately no longer reachable by tapping
+ * a button twice: a recorded dose shows no action buttons at all.
  */
 export async function recordDose(
   input: {
@@ -362,8 +363,8 @@ export async function logSosDose(
  * "taken just now" entry.
  *
  * Guarded to those two key shapes on purpose. A scheduled dose has its own
- * undo (re-tap the same status), and this must never become a second, less
- * careful way to erase one.
+ * correction path behind the dose card's disclosure, and this must never
+ * become a second, less careful way to erase one.
  */
 export async function deleteDoseLog(recordId: string) {
   const h = await requireHousehold()
