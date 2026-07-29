@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { addCustomMedicine } from '@/lib/actions'
-import { Sheet, useChrome } from './chrome'
+import { Sheet, useAction, useChrome } from './chrome'
 import { prettyTime } from '@/lib/time'
 
 /**
@@ -10,7 +10,8 @@ import { prettyTime } from '@/lib/time'
  * on today's schedule; leaving it blank files it with the SOS entries.
  */
 export function AddMedicineSheet() {
-  const { run, pending, closeSheet, payload } = useChrome()
+  const { closeSheet, payload } = useChrome()
+  const { run, busy: pending } = useAction()
   const form = useRef<HTMLFormElement>(null)
   const [schedule, setSchedule] = useState(false)
   const [frequency, setFrequency] = useState(1)

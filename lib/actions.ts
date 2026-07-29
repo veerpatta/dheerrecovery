@@ -98,31 +98,64 @@ export async function updateBand(formData: FormData) {
 
 // ----------------------------------------------------------------- doses ---
 
+type Medicine = typeof medicines.$inferSelect
+type Slot = typeof doseSlots.$inferSelect
+
+/** Everything a dose write needs about one medicine on one date, in one trip. */
+async function loadDoseContext(
+  householdId: string,
+  medicineId: string,
+  doseDate: string,
+) {
+  const [medicineRows, slots, dayRecords] = await Promise.all([
+    db
+      .select()
+      .from(medicines)
+      .where(and(eq(medicines.id, medicineId), eq(medicines.householdId, householdId)))
+      .limit(1),
+    db
+      .select()
+      .from(doseSlots)
+      .where(eq(doseSlots.medicineId, medicineId))
+      .orderBy(asc(doseSlots.sortOrder)),
+    db
+      .select()
+      .from(doseRecords)
+      .where(
+        and(
+          eq(doseRecords.householdId, householdId),
+          eq(doseRecords.medicineId, medicineId),
+          eq(doseRecords.doseDate, doseDate),
+        ),
+      ),
+  ])
+
+  const medicine = medicineRows[0]
+  if (!medicine) throw new Error('Medicine not found in this record.')
+  return { medicine, slots, dayRecords }
+}
+
 /**
  * Re-derive `scheduledTime` for one medicine's doses on one date after its
- * anchor moved — the morning dose was recorded, undone, or retimed, so the
+ * anchor moved — the morning dose was recorded, cleared, or retimed, so the
  * evening dose is no longer due when it was.
+ *
+ * The medicine and its slots are handed in rather than re-read: the caller has
+ * just loaded them. Only the day's records are re-read, because the write that
+ * prompted this changed them, and only for a medicine that has an interval at
+ * all — which is two of the five routine medicines, so most dose taps now
+ * finish without this costing anything. The updates go out together.
  *
  * Deliberately NOT exported: this file is `'use server'`, so every export
  * becomes a publicly callable endpoint.
  */
 async function restampDependentDoses(
   householdId: string,
-  medicineId: string,
+  medicine: Medicine,
+  slots: Slot[],
   doseDate: string,
 ) {
-  const [medicine] = await db
-    .select()
-    .from(medicines)
-    .where(eq(medicines.id, medicineId))
-    .limit(1)
-  if (!medicine?.dosingIntervalHours) return
-
-  const slots = await db
-    .select()
-    .from(doseSlots)
-    .where(eq(doseSlots.medicineId, medicineId))
-    .orderBy(asc(doseSlots.sortOrder))
+  if (!medicine.dosingIntervalHours) return
 
   const dayRecords = await db
     .select()
@@ -130,19 +163,22 @@ async function restampDependentDoses(
     .where(
       and(
         eq(doseRecords.householdId, householdId),
-        eq(doseRecords.medicineId, medicineId),
+        eq(doseRecords.medicineId, medicine.id),
         eq(doseRecords.doseDate, doseDate),
       ),
     )
 
-  for (const record of dayRecords) {
+  const writes = dayRecords.flatMap((record) => {
     const due = dueTimeForSlot({ ...medicine, slots }, record.slotKey, dayRecords, doseDate)
-    if (!due || due === record.scheduledTime?.slice(0, 5)) continue
-    await db
-      .update(doseRecords)
-      .set({ scheduledTime: due })
-      .where(eq(doseRecords.id, record.id))
-  }
+    if (!due || due === record.scheduledTime?.slice(0, 5)) return []
+    return [
+      db
+        .update(doseRecords)
+        .set({ scheduledTime: due })
+        .where(eq(doseRecords.id, record.id)),
+    ]
+  })
+  if (writes.length) await Promise.all(writes)
 }
 
 /**
@@ -162,33 +198,15 @@ export async function recordDose(
   },
 ) {
   const h = await requireHousehold()
-
-  const [medicine] = await db
-    .select()
-    .from(medicines)
-    .where(and(eq(medicines.id, input.medicineId), eq(medicines.householdId, h.id)))
-    .limit(1)
-  if (!medicine) throw new Error('Medicine not found in this record.')
-
-  const slots = await db
-    .select()
-    .from(doseSlots)
-    .where(eq(doseSlots.medicineId, medicine.id))
-    .orderBy(asc(doseSlots.sortOrder))
+  const { medicine, slots, dayRecords } = await loadDoseContext(
+    h.id,
+    input.medicineId,
+    input.doseDate,
+  )
   const slot = slots.find((s) => s.slotKey === input.slotKey)
-
-  const [existing] = await db
-    .select()
-    .from(doseRecords)
-    .where(
-      and(
-        eq(doseRecords.householdId, h.id),
-        eq(doseRecords.medicineId, medicine.id),
-        eq(doseRecords.slotKey, input.slotKey),
-        eq(doseRecords.doseDate, input.doseDate),
-      ),
-    )
-    .limit(1)
+  // The day's records already contain this slot's row, so finding it here
+  // costs nothing where it used to cost a query of its own.
+  const existing = dayRecords.find((r) => r.slotKey === input.slotKey)
 
   /*
    * For an interval medicine the evening dose is due 12 h after the morning
@@ -196,16 +214,6 @@ export async function recordDose(
    * printed 8:00 pm instead would make an 8:20 pm dose — exactly on target —
    * read as 20 minutes late in the ledger, the on-time score and the report.
    */
-  const dayRecords = await db
-    .select()
-    .from(doseRecords)
-    .where(
-      and(
-        eq(doseRecords.householdId, h.id),
-        eq(doseRecords.medicineId, medicine.id),
-        eq(doseRecords.doseDate, input.doseDate),
-      ),
-    )
   const scheduledTime =
     dueTimeForSlot({ ...medicine, slots }, input.slotKey, dayRecords, input.doseDate) ??
     slot?.time ??
@@ -220,9 +228,9 @@ export async function recordDose(
   if (existing) {
     if (existing.status === input.status) {
       await db.delete(doseRecords).where(eq(doseRecords.id, existing.id))
-      // Undoing the morning dose removes the anchor, so the evening reverts
+      // Clearing the morning dose removes the anchor, so the evening reverts
       // to its printed reminder time.
-      await restampDependentDoses(h.id, medicine.id, input.doseDate)
+      await restampDependentDoses(h.id, medicine, slots, input.doseDate)
       refresh()
       return { cleared: true }
     }
@@ -250,7 +258,7 @@ export async function recordDose(
   }
 
   // This dose may itself be an anchor for a later one.
-  await restampDependentDoses(h.id, medicine.id, input.doseDate)
+  await restampDependentDoses(h.id, medicine, slots, input.doseDate)
   refresh()
   return { cleared: false }
 }
@@ -278,25 +286,19 @@ export async function setDoseTakenAt(input: {
     throw new Error('Dose time cannot be in the future.')
   }
 
-  const [existing] = await db
-    .select()
-    .from(doseRecords)
-    .where(
-      and(
-        eq(doseRecords.householdId, h.id),
-        eq(doseRecords.medicineId, input.medicineId),
-        eq(doseRecords.slotKey, input.slotKey),
-        eq(doseRecords.doseDate, input.doseDate),
-      ),
-    )
-    .limit(1)
+  const { medicine, slots, dayRecords } = await loadDoseContext(
+    h.id,
+    input.medicineId,
+    input.doseDate,
+  )
+  const existing = dayRecords.find((r) => r.slotKey === input.slotKey)
 
   if (!existing) throw new Error('Mark the dose as taken before setting a time.')
   if (existing.status !== 'taken') throw new Error('Only a taken dose has a time.')
 
   await db.update(doseRecords).set({ takenAt }).where(eq(doseRecords.id, existing.id))
   // Moving the morning dose moves what the evening dose is spaced from.
-  await restampDependentDoses(h.id, input.medicineId, input.doseDate)
+  await restampDependentDoses(h.id, medicine, slots, input.doseDate)
   refresh()
 }
 

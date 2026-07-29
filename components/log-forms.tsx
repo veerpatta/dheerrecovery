@@ -9,7 +9,7 @@ import {
   logSeizure,
   updateBand,
 } from '@/lib/actions'
-import { useChrome } from './chrome'
+import { useAction } from './chrome'
 
 function Chevron() {
   return (
@@ -40,7 +40,7 @@ export function BandForm({
     confirmed?: boolean
   }
 }) {
-  const { run, pending } = useChrome()
+  const { run, busy: pending } = useAction()
 
   return (
     <details className="no-print">
@@ -97,7 +97,7 @@ export function BandForm({
 
 export function SeizureForm() {
   const form = useRef<HTMLFormElement>(null)
-  const { run, pending } = useChrome()
+  const { run, busy: pending } = useAction()
 
   return (
     <form
@@ -161,7 +161,7 @@ export function SeizureForm() {
 
 export function NoteForm() {
   const form = useRef<HTMLFormElement>(null)
-  const { run, pending } = useChrome()
+  const { run, busy: pending } = useAction()
 
   return (
     <form
@@ -205,7 +205,7 @@ export function DeleteButton({
   id: string
   kind: 'bp' | 'seizure' | 'note'
 }) {
-  const { run, pending } = useChrome()
+  const { run, busy: pending } = useAction()
   const fn =
     kind === 'bp' ? deleteBp : kind === 'seizure' ? deleteSeizure : deleteCareNote
 

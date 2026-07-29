@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { recordDose } from '@/lib/actions'
 import { careClock, careInstant, formatGap, prettyTime } from '@/lib/time'
-import { Sheet, useChrome } from './chrome'
+import { doseKey, Sheet, useAction, useChrome } from './chrome'
 
 /** Minutes ago, for the one-tap chips. */
 const OFFSETS = [5, 15, 30, 60]
@@ -16,7 +16,8 @@ const OFFSETS = [5, 15, 30, 60]
  * report. One sheet serves every dose card, via the chrome payload.
  */
 export function DoseTimeSheet() {
-  const { sheet, payload, run, closeSheet, pending } = useChrome()
+  const { sheet, payload, closeSheet, markDose } = useChrome()
+  const { run, busy } = useAction()
   const [custom, setCustom] = useState('')
 
   const open = sheet === 'dose'
@@ -34,7 +35,17 @@ export function DoseTimeSheet() {
     ? new Date(payload.previousTakenAt)
     : null
 
+  /*
+   * Close first, mark the card second, write third. The sheet is gone and the
+   * dose already reads as taken on the timeline before the request leaves the
+   * phone — the write is the slow part and nothing on screen waits for it.
+   */
   function save(at: Date, label: string) {
+    closeSheet()
+    markDose(doseKey(medicineId!, slotKey!, doseDate!), {
+      status: 'taken',
+      takenClock: careClock(at),
+    })
     run(
       () =>
         recordDose({
@@ -46,7 +57,6 @@ export function DoseTimeSheet() {
         }),
       `${brand} taken ${label} ✓`,
     )
-    closeSheet()
   }
 
   /** The gap this choice would produce against the previous dose. */
@@ -76,7 +86,7 @@ export function DoseTimeSheet() {
     >
       <button
         type="button"
-        disabled={pending}
+        disabled={busy}
         aria-label="Taken now"
         onClick={() => save(new Date(), 'now')}
         className="h-14 w-full rounded-2xl bg-teal text-[17px] font-bold text-white transition active:scale-[0.97]"
@@ -94,7 +104,7 @@ export function DoseTimeSheet() {
           <button
             key={mins}
             type="button"
-            disabled={pending}
+            disabled={busy}
             onClick={() => save(new Date(Date.now() - mins * 60_000), `${formatGap(mins)} ago`)}
             className="h-12 rounded-xl border border-line bg-white text-[13px] font-bold text-ink transition active:scale-95"
           >
@@ -117,7 +127,7 @@ export function DoseTimeSheet() {
         </label>
         <button
           type="button"
-          disabled={pending || !customAt}
+          disabled={busy || !customAt}
           aria-label="Save dose time"
           onClick={() => customAt && save(customAt, `at ${prettyTime(custom)}`)}
           className="btn-primary h-11 self-end px-4"

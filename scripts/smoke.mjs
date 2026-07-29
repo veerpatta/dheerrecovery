@@ -201,6 +201,53 @@ if (istHour < 1) {
   )
 }
 
+// 4c. The card must not wait on the network. Server Actions are held for well
+//     over a second; the dose is a statement about something that already
+//     happened, so the timeline has to say so long before the write lands —
+//     and the rest of the app has to stay usable while it does.
+const HOLD = 1200
+let holdWrites = true
+await page.route('**/*', async (route) => {
+  if (holdWrites && route.request().method() === 'POST') {
+    await new Promise((r) => setTimeout(r, HOLD))
+  }
+  // The route can be torn down while a hold is still sleeping.
+  await route.continue().catch(() => {})
+})
+const slow = page.locator('li', { hasText: 'Tryptomer 10' }).first()
+await slow.getByRole('button', { name: /^Taken$/ }).click()
+await page.waitForSelector('[role=dialog]')
+const optimisticStart = Date.now()
+await page.getByRole('button', { name: /^Taken now$/ }).click()
+await page.waitForFunction(
+  () => /TAKEN AT/i.test(document.querySelector('ul.timeline')?.innerText ?? ''),
+  null,
+  { timeout: 20000 },
+)
+const optimisticMs = Date.now() - optimisticStart
+check(
+  'dose records without waiting for the server',
+  optimisticMs < HOLD,
+  `${optimisticMs}ms, write held for ${HOLD}ms`,
+)
+check('sheet closes on the tap, not on the reply', (await page.locator('[role=dialog]').count()) === 0)
+check(
+  'the rest of the timeline stays live while saving',
+  await page.getByRole('button', { name: /^Skip$/ }).first().isEnabled(),
+)
+holdWrites = false
+await settle(1600)
+await page.unrouteAll({ behavior: 'ignoreErrors' })
+await page.reload({ waitUntil: 'networkidle' })
+check('the held write still landed', /2\/7 taken/.test(await text()), (await text()).match(/\d+\/\d+ taken/)?.[0])
+// Put it back, so the later "Taken 1" ledger assertion still describes one dose.
+await slow.locator('summary').click()
+await page.waitForTimeout(250)
+await slow.getByRole('button', { name: /^Remove the taken entry for Tryptomer/ }).click()
+await settle()
+await page.reload({ waitUntil: 'networkidle' })
+check('correction restores the count', /1\/7 taken/.test(await text()))
+
 // 5. SOS sheet — now reached from the floating button
 check('one SOS control on screen', (await page.getByRole('button', { name: /^SOS/ }).count()) === 1)
 const sosBox = await page.getByRole('button', { name: /^SOS/ }).boundingBox()

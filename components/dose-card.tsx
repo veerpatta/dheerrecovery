@@ -5,7 +5,7 @@ import { foodRuleOf } from '@/lib/food'
 import { driftBand, formatGap, prettyTime, shortDrift } from '@/lib/time'
 import { toneOf } from '@/lib/tone'
 import type { DoseStatus } from '@/lib/queries'
-import { useChrome } from './chrome'
+import { doseKey, useAction, useChrome } from './chrome'
 
 /**
  * Colour on this card answers "where does this dose stand?", not "what kind of
@@ -75,6 +75,8 @@ export interface DoseCardProps {
   takenClock: string | null
   /** Minutes the due time is already past, for an unrecorded dose. */
   overdueMinutes: number | null
+  /** What this slot reverts to if its record is removed. */
+  clearedStatus: DoseStatus
   purpose: string | null
   prescriptionHi: string | null
   food: string | null
@@ -86,11 +88,28 @@ export interface DoseCardProps {
 }
 
 export function DoseCard(props: DoseCardProps) {
-  const { run, pending, openSheet } = useChrome()
-  const status = STATUS[props.status]
+  const { openSheet, doses, markDose } = useChrome()
+  const { run, busy } = useAction()
+
+  /*
+   * The card believes the tap before it believes the server. Recording a dose
+   * is a statement about something that already happened, so the card flips
+   * the instant it is pressed and the write catches up behind it. The pending
+   * value is dropped in the same commit that applies the server's tree, so
+   * there is never a frame showing the old state again.
+   */
+  const key = doseKey(props.medicineId, props.slotKey, props.doseDate)
+  const optimistic = doses[key]
+  const liveStatus = optimistic?.status ?? props.status
+  const takenClock = optimistic ? optimistic.takenClock : props.takenClock
+  // A drift figure is measured against a stored `scheduledTime` the server has
+  // not written yet, so it waits for the real record rather than guessing.
+  const drift = optimistic ? null : props.drift
+
+  const status = STATUS[liveStatus]
   const tone = toneOf(props.tone)
-  const isTaken = props.status === 'taken'
-  const isSkipped = props.status === 'skipped'
+  const isTaken = liveStatus === 'taken'
+  const isSkipped = liveStatus === 'skipped'
   const isRecorded = isTaken || isSkipped
   const food = foodRuleOf(props.food)
 
@@ -100,8 +119,8 @@ export function DoseCard(props: DoseCardProps) {
    * time only reappears underneath, small, when the two disagree — otherwise
    * it is noise.
    */
-  const railTime = isTaken && props.takenClock ? props.takenClock : props.time
-  const shifted = isTaken && props.takenClock ? props.takenClock !== props.time : false
+  const railTime = isTaken && takenClock ? takenClock : props.time
+  const shifted = isTaken && takenClock ? takenClock !== props.time : false
 
   /*
    * Only reference-shaped text stays behind the disclosure now. Purpose, the
@@ -132,6 +151,7 @@ export function DoseCard(props: DoseCardProps) {
   }
 
   function tapSkip() {
+    markDose(key, { status: 'skipped', takenClock: null })
     run(
       () =>
         recordDose({
@@ -151,6 +171,7 @@ export function DoseCard(props: DoseCardProps) {
    * recorded, so there is nothing left to tap by accident.
    */
   function clearRecord(next: 'taken' | 'skipped') {
+    markDose(key, { status: props.clearedStatus, takenClock: null })
     run(
       () =>
         recordDose({
@@ -166,8 +187,8 @@ export function DoseCard(props: DoseCardProps) {
   return (
     <li
       className="rail-row reveal"
-      data-status={props.status}
-      data-past={props.status === 'upcoming' ? 'false' : 'true'}
+      data-status={liveStatus}
+      data-past={liveStatus === 'upcoming' ? 'false' : 'true'}
       data-next={props.isNext ? 'true' : 'false'}
     >
       <div className="rail-time">
@@ -185,7 +206,7 @@ export function DoseCard(props: DoseCardProps) {
 
       <div
         className="card-toned rail-card"
-        data-status={props.status}
+        data-status={liveStatus}
         data-focus={props.isNext ? 'true' : 'false'}
       >
         <div className="flex items-start justify-between gap-2">
@@ -203,7 +224,7 @@ export function DoseCard(props: DoseCardProps) {
           </div>
           <span className={`pill shrink-0 ${status.pill}`}>
             <span className="lang-en">
-              {props.status === 'not-recorded' &&
+              {liveStatus === 'not-recorded' &&
               props.overdueMinutes !== null &&
               props.overdueMinutes >= 45
                 ? `${formatGap(props.overdueMinutes)} late`
@@ -253,8 +274,8 @@ export function DoseCard(props: DoseCardProps) {
           the time input sits transparently on top of it — so correcting "I
           tapped it at 9 but gave it at 8:20" is one tap on the number itself.
         */}
-        {isTaken && props.takenClock ? (
-          <p className="dose-stamp">
+        {isTaken && takenClock ? (
+          <p className="dose-stamp" key={takenClock}>
             <span className="dose-stamp-key">
               <span className="lang-en">Taken at</span>
               <span className="lang-hi">लिया</span>
@@ -262,14 +283,14 @@ export function DoseCard(props: DoseCardProps) {
             {/* The visible text is "6:45 am", which is not a valid time value —
                 dateTime carries the machine-readable "HH:MM". */}
             <time
-              dateTime={props.takenClock}
+              dateTime={takenClock}
               className="text-[19px] leading-none font-extrabold tracking-tight text-teal-deep tabular-nums"
             >
-              {prettyTime(props.takenClock)}
+              {prettyTime(takenClock)}
             </time>
-            {props.drift !== null ? (
-              <span className={`drift-chip ${DRIFT_CHIP[driftBand(props.drift)]}`}>
-                {shortDrift(props.drift)}
+            {drift !== null ? (
+              <span className={`drift-chip ${DRIFT_CHIP[driftBand(drift)]}`}>
+                {shortDrift(drift)}
               </span>
             ) : null}
             <span className="dose-stamp-edit">
@@ -292,8 +313,8 @@ export function DoseCard(props: DoseCardProps) {
             </span>
             <input
               type="time"
-              defaultValue={props.takenClock}
-              disabled={pending}
+              defaultValue={takenClock}
+              disabled={busy}
               aria-label={`Time ${props.brand} was taken`}
               onClick={(e) => {
                 // showPicker throws outside a user gesture and in cross-origin
@@ -305,6 +326,7 @@ export function DoseCard(props: DoseCardProps) {
               onChange={(e) => {
                 const value = e.target.value
                 if (!value) return
+                markDose(key, { status: 'taken', takenClock: value })
                 run(
                   () =>
                     setDoseTakenAt({
@@ -368,11 +390,11 @@ export function DoseCard(props: DoseCardProps) {
             */}
             <button
               type="button"
-              disabled={pending}
+              disabled={busy}
               onClick={tapTaken}
               aria-label="Taken"
               className={`h-12 flex-[2] rounded-[13px] border-[1.5px] text-[15px] font-bold transition active:scale-95 ${
-                props.isNext || props.status === 'not-recorded'
+                props.isNext || liveStatus === 'not-recorded'
                   ? 'border-teal bg-teal text-white'
                   : 'border-line bg-white text-ink'
               }`}
@@ -386,7 +408,7 @@ export function DoseCard(props: DoseCardProps) {
             </button>
             <button
               type="button"
-              disabled={pending}
+              disabled={busy}
               onClick={tapSkip}
               aria-label="Skip"
               className="h-12 flex-1 rounded-[13px] border-[1.5px] border-line bg-white text-[15px] font-bold text-muted transition active:scale-95"
@@ -471,7 +493,7 @@ export function DoseCard(props: DoseCardProps) {
                   </p>
                   <button
                     type="button"
-                    disabled={pending}
+                    disabled={busy}
                     onClick={() => clearRecord(isTaken ? 'taken' : 'skipped')}
                     aria-label={`Remove the ${isTaken ? 'taken' : 'skipped'} entry for ${props.brand}`}
                     className="mt-1.5 h-9 rounded-[10px] border-[1.5px] border-coral-line bg-white px-3 text-[12px] font-bold text-coral-ink transition active:scale-95"

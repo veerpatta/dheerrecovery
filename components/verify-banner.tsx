@@ -1,10 +1,10 @@
 'use client'
 
 import { confirmPrescription } from '@/lib/actions'
-import { useChrome } from './chrome'
+import { useAction } from './chrome'
 
 export function VerifyBanner({ prescriptionDate }: { prescriptionDate: string }) {
-  const { run, pending } = useChrome()
+  const { run, busy: pending } = useAction()
 
   return (
     <section className="flex flex-col gap-2 rounded-2xl border border-coral/30 bg-coral-soft p-4 no-print">

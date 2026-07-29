@@ -41,6 +41,13 @@
 
   /* The design is a 430px phone. Everything wider is backdrop. */
   --shell-width: 430px;
+
+  /*
+   * One easing for every interaction, and a short one. Motion here exists to
+   * confirm a tap landed, not to be looked at — anything past ~200ms starts
+   * reading as the app thinking rather than the app responding.
+   */
+  --ease-snap: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /*
@@ -76,6 +83,29 @@ button,
 a {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * Press feedback is the one animation that must never be late, so it is
+ * transform-only — no layout, no paint, straight to the compositor — and
+ * faster on the way down than on the way back up. Tailwind's `transition`
+ * shorthand animates a dozen properties; on a control that only ever moves,
+ * that is a dozen chances to touch the main thread on a scroll frame.
+ */
+button {
+  transition:
+    transform 90ms var(--ease-snap),
+    background-color 120ms linear,
+    border-color 120ms linear,
+    color 120ms linear;
+}
+button:active {
+  transition-duration: 40ms;
+}
+
+/* The page scroller, not the shell, so momentum scrolling stays native. */
+html {
+  overscroll-behavior-y: none;
 }
 
 a {
@@ -383,13 +413,112 @@ a:hover {
   }
 }
 .animate-sheet-up {
-  animation: sheetUp 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: sheetUp 0.22s var(--ease-snap);
 }
 .animate-fade-in {
-  animation: fadeIn 0.2s ease;
+  animation: fadeIn 0.14s ease-out;
 }
 .animate-toast-in {
-  animation: toastIn 0.25s ease;
+  animation: toastIn 0.18s var(--ease-snap);
+}
+
+/*
+ * ------------------------------------------------------------- feedback --
+ * A dose card flips the instant it is tapped, so the stamp needs to arrive
+ * like something that just happened rather than something that faded in.
+ */
+@keyframes stampIn {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes syncSweep {
+  from {
+    transform: translate3d(-100%, 0, 0);
+  }
+  to {
+    transform: translate3d(300%, 0, 0);
+  }
+}
+@keyframes skeletonSweep {
+  to {
+    background-position: 200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dose-stamp {
+    animation: stampIn 0.18s var(--ease-snap);
+  }
+}
+
+/*
+ * The only thing on screen that waits for the server: a hairline that sweeps
+ * under the header while a write is in flight. It replaced disabling every
+ * button in the app, and unlike a spinner it never blocks the next tap.
+ */
+.sync-bar {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  translate: -50% 0;
+  z-index: 40;
+  width: min(100%, var(--shell-width));
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.sync-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 33%;
+  border-radius: 2px;
+  background: var(--color-teal);
+  animation: syncSweep 0.9s var(--ease-snap) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sync-bar::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.45;
+  }
+}
+
+/* Placeholder blocks for the route skeleton. */
+.skeleton {
+  display: block;
+  background:
+    linear-gradient(
+        100deg,
+        transparent 20%,
+        rgb(255 255 255 / 0.65) 50%,
+        transparent 80%
+      )
+      0 0 / 200% 100%,
+    var(--color-line);
+  border-radius: 6px;
+}
+.skeleton[data-dark='true'] {
+  background:
+    linear-gradient(
+        100deg,
+        transparent 20%,
+        rgb(255 255 255 / 0.08) 50%,
+        transparent 80%
+      )
+      0 0 / 200% 100%,
+    var(--color-navy);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton {
+    animation: skeletonSweep 1.1s linear infinite;
+  }
 }
 
 /*
@@ -440,11 +569,18 @@ a:hover {
 
 @media (prefers-reduced-motion: no-preference) {
   @supports (animation-timeline: view()) {
+    /*
+     * No `will-change` here. It used to be on every row, which is a promotion
+     * to its own compositing layer for every dose on the timeline — a dozen
+     * layers to allocate, rasterise and keep in memory, on the one screen the
+     * app is scrolled through most. A scroll-driven animation on opacity and
+     * transform is already composited; the hint bought nothing and cost the
+     * scroll.
+     */
     .reveal {
       animation: railReveal linear both;
       animation-timeline: view();
       animation-range: entry 0% entry 40%;
-      will-change: opacity, transform;
     }
     .reveal .node {
       animation: railNodePop linear both;

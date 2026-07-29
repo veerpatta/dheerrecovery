@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { logBp } from '@/lib/actions'
 import { classify, type Band } from '@/lib/bp'
-import { Sheet, useChrome } from './chrome'
+import { Sheet, useAction, useChrome } from './chrome'
 
 type Field = 'systolic' | 'diastolic' | 'pulse'
 
@@ -72,7 +72,8 @@ export function BpSheet({
   band: Band
   lastReadingAt: Date | string | null
 }) {
-  const { sheet, closeSheet, run, pending, notify } = useChrome()
+  const { sheet, closeSheet, notify } = useChrome()
+  const { run, busy: pending } = useAction()
   const [draft, setDraft] = useState(empty)
   const [pairId, setPairId] = useState<string | null>(null)
   const [context, setContext] = useState({ context: '', position: '', arm: '', measuredAt: '' })

@@ -401,6 +401,9 @@ export default async function TodayPage() {
                   ? Math.max(0, nowMinutes - minutesOf(item.dose.time))
                   : null
               }
+              clearedStatus={
+                minutesOf(item.dose.time) > nowMinutes ? 'upcoming' : 'not-recorded'
+              }
               takenClock={
                 item.dose.record?.takenAt
                   ? careClock(new Date(item.dose.record.takenAt))

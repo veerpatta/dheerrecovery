@@ -6,7 +6,7 @@ import type { DoseRecord } from '@/db/schema'
 import type { MedicineWithSlots } from '@/lib/queries'
 import { prettyDateTime } from '@/lib/time'
 import { SOS_STATUS, sosStyleOf } from '@/lib/tone'
-import { Sheet, useChrome } from './chrome'
+import { Sheet, useAction, useChrome } from './chrome'
 
 /**
  * SOS sits outside the reminder schedule on purpose. Logging an entry records
@@ -19,7 +19,8 @@ export function SosSheet({
   medicines: MedicineWithSlots[]
   records: DoseRecord[]
 }) {
-  const { run, closeSheet, openSheet, pending } = useChrome()
+  const { closeSheet, openSheet } = useChrome()
+  const { run, busy: pending } = useAction()
   const router = useRouter()
 
   const lastLoggedFor = (medicineId: string) =>

@@ -1,7 +1,7 @@
 'use client'
 
 import { deleteDoseLog } from '@/lib/actions'
-import { useChrome } from './chrome'
+import { useAction } from './chrome'
 
 /**
  * An unscheduled dose that was actually given — an SOS medicine, or a
@@ -31,7 +31,7 @@ export function LoggedDoseRow({
   note: string | null
   isSos: boolean
 }) {
-  const { run, pending } = useChrome()
+  const { run, busy: pending } = useAction()
 
   return (
     <li className="rail-row reveal" data-kind="logged" data-past="true">

@@ -1,6 +1,5 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
 import {
   createContext,
   useCallback,
@@ -15,6 +14,23 @@ import {
 
 export type SheetName = 'sos' | 'bp' | 'add' | 'dose'
 type Sync = 'idle' | 'saving' | 'synced'
+
+/**
+ * What a dose card should show *right now*, before the server has answered.
+ *
+ * A dose tap is a statement of fact — the tablet is already swallowed — so the
+ * card has no business waiting on a network round-trip to admit it happened.
+ * The sheet that records the time and the card that displays it are siblings,
+ * so the pending truth is held here, keyed by dose, and dropped the moment the
+ * server's own version arrives.
+ */
+export interface OptimisticDose {
+  status: 'taken' | 'skipped' | 'not-recorded' | 'upcoming'
+  takenClock: string | null
+}
+
+export const doseKey = (medicineId: string, slotKey: string, doseDate: string) =>
+  `${medicineId}::${slotKey}::${doseDate}`
 
 /**
  * Payload for the sheets that are opened *about* something: which dose is
@@ -47,10 +63,21 @@ interface Chrome {
    * Run a server action with the header sync indicator and a success toast.
    * Every write in the app goes through here so the caregiver always sees
    * whether the shared record actually took the change.
+   *
+   * `onSettled` fires once the write has resolved either way — `useAction`
+   * uses it to keep "busy" local to the control that was pressed.
    */
-  run: (action: () => Promise<unknown>, successMessage?: string) => void
+  run: (
+    action: () => Promise<unknown>,
+    successMessage?: string,
+    onSettled?: () => void,
+  ) => void
+  /** True while *any* write is in flight. Prefer `useAction` for a button. */
   pending: boolean
   sync: Sync
+  /** Pending dose states, keyed by `doseKey`. */
+  doses: Record<string, OptimisticDose>
+  markDose: (key: string, value: OptimisticDose) => void
 }
 
 const ChromeContext = createContext<Chrome | null>(null)
@@ -61,12 +88,46 @@ export function useChrome(): Chrome {
   return ctx
 }
 
+/**
+ * `run`, plus a `busy` flag scoped to the component that called it.
+ *
+ * The context's `pending` is global: it is true while *any* write is in
+ * flight, so recording one dose greyed out every button on the timeline, both
+ * floating buttons and the whole settings page for as long as the round-trip
+ * took. That is most of what "laggy" meant here — the app was not slow so much
+ * as switched off. Only the control that was actually pressed should wait.
+ */
+export function useAction(): { run: Chrome['run']; busy: boolean } {
+  const { run: runGlobal } = useChrome()
+  const [busy, setBusy] = useState(false)
+  const alive = useRef(true)
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+    }
+  }, [])
+
+  const run = useCallback<Chrome['run']>(
+    (action, message, onSettled) => {
+      setBusy(true)
+      runGlobal(action, message, () => {
+        if (alive.current) setBusy(false)
+        onSettled?.()
+      })
+    },
+    [runGlobal],
+  )
+
+  return { run, busy }
+}
+
 export function ChromeProvider({ children }: { children: ReactNode }) {
-  const router = useRouter()
   const [sheet, setSheet] = useState<SheetName | null>(null)
   const [payload, setPayload] = useState<SheetPayload>({})
   const [toast, setToast] = useState<string | null>(null)
   const [sync, setSync] = useState<Sync>('idle')
+  const [doses, setDoses] = useState<Record<string, OptimisticDose>>({})
   const [pending, startTransition] = useTransition()
   const timers = useRef<ReturnType<typeof setTimeout>[]>([])
 
@@ -87,24 +148,42 @@ export function ChromeProvider({ children }: { children: ReactNode }) {
     [after],
   )
 
+  /*
+   * There is no `router.refresh()` here on purpose. Every action calls
+   * `revalidatePath`, so the Server Action's own response already carries the
+   * re-rendered tree — refreshing on top of it rendered the whole page a
+   * second time and cost a second round-trip. One dose tap used to run 27
+   * database queries; the duplicate render was 10 of them.
+   *
+   * Clearing the optimistic doses inside the same transition means the
+   * server's version replaces the local one in a single commit, with no frame
+   * in between where the card flickers back to its old state.
+   */
   const run = useCallback<Chrome['run']>(
-    (action, successMessage) => {
+    (action, successMessage, onSettled) => {
       setSync('saving')
       startTransition(async () => {
         try {
           await action()
-          router.refresh()
+          setDoses({})
           setSync('synced')
           if (successMessage) notify(successMessage)
           after(2200, () => setSync((s) => (s === 'synced' ? 'idle' : s)))
         } catch (error) {
+          setDoses({})
           setSync('idle')
           notify(error instanceof Error ? error.message : 'Could not save that.')
+        } finally {
+          onSettled?.()
         }
       })
     },
-    [after, notify, router],
+    [after, notify],
   )
+
+  const markDose = useCallback<Chrome['markDose']>((key, value) => {
+    setDoses((current) => ({ ...current, [key]: value }))
+  }, [])
 
   // Escape closes whichever sheet is open.
   useEffect(() => {
@@ -127,13 +206,19 @@ export function ChromeProvider({ children }: { children: ReactNode }) {
       run,
       pending,
       sync,
+      doses,
+      markDose,
     }),
-    [notify, payload, pending, run, sheet, sync],
+    [doses, markDose, notify, payload, pending, run, sheet, sync],
   )
 
   return (
     <ChromeContext.Provider value={value}>
       {children}
+      {/* A hairline under the header while a write is in flight. It is the
+          only thing on screen that waits for the server, and it costs one
+          composited transform rather than disabling half the interface. */}
+      {sync === 'saving' ? <span className="sync-bar no-print" aria-hidden /> : null}
       {toast ? (
         <p
           role="status"

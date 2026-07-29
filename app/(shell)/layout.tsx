@@ -35,7 +35,14 @@ export default async function ShellLayout({
   return (
     <ChromeProvider>
       <div className="shell mx-auto min-h-dvh w-full max-w-[var(--shell-width)] bg-paper shadow-shell">
-        <header className="sticky top-0 z-20 flex items-center gap-2.5 border-b border-line bg-paper/92 px-3.5 py-2.5 backdrop-blur no-print">
+        {/*
+          Opaque, not translucent. A sticky `backdrop-blur` header re-runs a
+          full-width backdrop-filter every scroll frame, and a fixed nav did
+          the same at the bottom — two blur passes per frame on the screen the
+          app spends its life scrolling. At this palette the difference is
+          barely visible; on the scroll it was the whole difference.
+        */}
+        <header className="sticky top-0 z-20 flex items-center gap-2.5 border-b border-line bg-paper px-3.5 py-2.5 no-print">
           <svg
             width="30"
             height="30"

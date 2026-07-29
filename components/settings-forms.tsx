@@ -9,11 +9,11 @@ import {
   updateSlotTime,
 } from '@/lib/actions'
 import { prettyTime } from '@/lib/time'
-import { useChrome } from './chrome'
+import { useAction } from './chrome'
 
 /** The design's chips save on tap — no submit button to hunt for. */
 export function AlertLeadChips({ alertLeadMinutes }: { alertLeadMinutes: number }) {
-  const { run, pending } = useChrome()
+  const { run, busy: pending } = useAction()
 
   return (
     <div className="flex gap-2">
@@ -40,7 +40,7 @@ export function AlertLeadChips({ alertLeadMinutes }: { alertLeadMinutes: number 
 }
 
 export function CourseStartForm({ courseStart }: { courseStart: string }) {
-  const { run, pending } = useChrome()
+  const { run, busy: pending } = useAction()
 
   return (
     <details className="no-print">
@@ -107,7 +107,7 @@ export function SlotTimeRow({
   editable: boolean
   removable: boolean
 }) {
-  const { run, pending } = useChrome()
+  const { run, busy: pending } = useAction()
   const [value, setValue] = useState(time.slice(0, 5))
 
   return (
@@ -157,7 +157,7 @@ export function SlotTimeRow({
 
 export function AddMedicineForm() {
   const form = useRef<HTMLFormElement>(null)
-  const { run, pending } = useChrome()
+  const { run, busy: pending } = useAction()
 
   return (
     <form
