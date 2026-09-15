@@ -4,6 +4,8 @@ import {
   EMERGENCY_TRIGGER,
   REFERENCES,
   REVIEW_QUESTIONS,
+  RT_COURSE_END,
+  RT_COURSE_START,
   SAFETY_RULES,
   SUPPLY_DAYS,
 } from '@/lib/catalog'
@@ -16,6 +18,15 @@ export default async function SafetyPage() {
 
   const supplyEnds = addDays(household.courseStart, SUPPLY_DAYS)
   const daysLeft = daysBetween(careDate(), supplyEnds)
+
+  /*
+   * The 15 September sheet orders a review in seven days with CBC, S. creatinine
+   * and SGPT, and the chemoradiation course itself ends on a fixed date. Neither
+   * had anywhere to live before this — they are prescribed instructions, so they
+   * belong beside the supply date rather than only inside a medicine card.
+   */
+  const bloodsDue = addDays(RT_COURSE_START, 7)
+  const rtDaysLeft = daysBetween(careDate(), RT_COURSE_END)
 
   return (
     <>
@@ -80,6 +91,20 @@ export default async function SafetyPage() {
             ? `about ${daysLeft} day${daysLeft === 1 ? '' : 's'} left.`
             : 'the one-month supply window has passed; arrange review.'}
         </p>
+
+        <div className="mt-2.5 rounded-xl bg-paper px-3 py-2.5">
+          <p className="eyebrow text-[10px]">Chemoradiation course</p>
+          <p className="mt-0.5 text-[12.5px] leading-relaxed text-ink/85">
+            {prettyRxDate(RT_COURSE_START)} to {prettyRxDate(RT_COURSE_END)} —{' '}
+            {rtDaysLeft > 0
+              ? `about ${rtDaysLeft} day${rtDaysLeft === 1 ? '' : 's'} left.`
+              : 'the 42 days have passed; confirm what continues.'}
+          </p>
+          <p className="mt-1 text-[12.5px] leading-relaxed font-semibold text-ink">
+            The 15 September sheet orders a review after 7 days —{' '}
+            {prettyRxDate(bloodsDue)} — with CBC, S. creatinine and SGPT.
+          </p>
+        </div>
         <ul className="mt-2.5 flex flex-col gap-2">
           {REVIEW_QUESTIONS.map((q) => (
             <li

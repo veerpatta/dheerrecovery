@@ -63,10 +63,26 @@ for (const med of [
   'Lacoset 100',
   'Valprol CR 500',
   'Tryptomer 10',
+  // Every day of the chemoradiation course. Temozolomide and Septran DS are
+  // deliberately absent from this list: one waits on the therapy answer, the
+  // other on the weekday, and both are asserted properly further down.
+  'Perinorm 10',
 ]) {
   check(`today lists ${med}`, body.includes(med))
 }
-check('7 scheduled doses', /0\/7 taken/.test(body), body.match(/\d+\/\d+ taken/)?.[0])
+
+/*
+ * The scheduled total is no longer a constant. Septran DS is Mondays and
+ * Thursdays, Temozolomide lands only on a day answered as a therapy day, and
+ * the whole chemoradiation course ends on 26 October — so a fresh database
+ * shows nine, eleven or seven depending on the day this runs. Read the total
+ * off the page once and make every later assertion relative to it; that is a
+ * stronger test than a hard-coded number was, and it survives a Monday.
+ */
+const total = Number(body.match(/\d+\/(\d+) taken/)?.[1])
+const ring = (n) => new RegExp(`${n}/${total} taken`)
+check('scheduled doses seeded', total >= 7, `${total} slots`)
+check('nothing recorded yet', ring(0).test(body), body.match(/\d+\/\d+ taken/)?.[0])
 check('prescription date on today', body.includes('28 July 2026'))
 check('bottom nav present', (await page.locator('nav a[href="/logs"]').count()) === 1)
 
@@ -116,7 +132,7 @@ await settle()
 check('time dialog closes after saving', (await page.locator('[role=dialog]').count()) === 0)
 await page.reload({ waitUntil: 'networkidle' })
 const afterTake = await text()
-check('dose persisted as taken', /1\/7 taken/.test(afterTake), afterTake.match(/\d+\/\d+ taken/)?.[0])
+check('dose persisted as taken', ring(1).test(afterTake), afterTake.match(/\d+\/\d+ taken/)?.[0])
 
 // 4. A recorded dose offers no decision — the buttons step aside entirely,
 //    and the correction lives behind the disclosure instead.
@@ -139,7 +155,7 @@ await correction.click()
 await settle()
 check('correcting does not open a dialog', (await page.locator('[role=dialog]').count()) === 0)
 await page.reload({ waitUntil: 'networkidle' })
-check('correction clears the record', /0\/7 taken/.test(await text()))
+check('correction clears the record', ring(0).test(await text()))
 await page.getByRole('button', { name: /^Taken$/ }).first().click()
 await page.getByRole('button', { name: /^Taken now$/ }).click()
 await settle()
@@ -239,14 +255,14 @@ holdWrites = false
 await settle(1600)
 await page.unrouteAll({ behavior: 'ignoreErrors' })
 await page.reload({ waitUntil: 'networkidle' })
-check('the held write still landed', /2\/7 taken/.test(await text()), (await text()).match(/\d+\/\d+ taken/)?.[0])
+check('the held write still landed', ring(2).test(await text()), (await text()).match(/\d+\/\d+ taken/)?.[0])
 // Put it back, so the later "Taken 1" ledger assertion still describes one dose.
 await slow.locator('summary').click()
 await page.waitForTimeout(250)
 await slow.getByRole('button', { name: /^Remove the taken entry for Tryptomer/ }).click()
 await settle()
 await page.reload({ waitUntil: 'networkidle' })
-check('correction restores the count', /1\/7 taken/.test(await text()))
+check('correction restores the count', ring(1).test(await text()))
 
 // 5. SOS sheet — now reached from the floating button
 check('one SOS control on screen', (await page.getByRole('button', { name: /^SOS/ }).count()) === 1)
@@ -271,7 +287,7 @@ await page.keyboard.press('Escape')
 await page.waitForTimeout(400)
 check('sos drawer closes on Escape', (await page.locator('[role=dialog]').count()) === 0)
 
-// 5c. An SOS dose lands on Today's timeline without moving the N/7 ring
+// 5c. An SOS dose lands on Today's timeline without moving the ring
 await page.getByRole('button', { name: /^SOS/ }).click()
 await page.getByRole('button', { name: /^Log SOS dose of Napra/ }).click()
 await settle()
@@ -281,7 +297,7 @@ const withSos = await text()
 check('sos dose shows on the timeline', /Napra‑D 500\/10/.test(withSos))
 check(
   'sos dose does not move the ring',
-  /1\/7 taken/.test(withSos),
+  ring(1).test(withSos),
   withSos.match(/\d+\/\d+ taken/)?.[0],
 )
 await page.getByRole('button', { name: /^Remove logged dose of Napra/ }).click()
@@ -380,17 +396,91 @@ check(
   'shown as static text, not an input',
 )
 const timeInputs = page.locator('input[type=time]')
-check('editable reminder slots', (await timeInputs.count()) >= 6, `${await timeInputs.count()} inputs`)
+check('editable reminder slots', (await timeInputs.count()) >= 10, `${await timeInputs.count()} inputs`)
 await page.screenshot({ path: `${shots}/05-settings.png`, fullPage: true })
-await timeInputs.first().fill('07:30')
+// A time no seeded slot already uses — Perinorm's morning reminder is 7:30,
+// so filling that would pass whether or not the write actually landed.
+await timeInputs.first().fill('06:45')
 await settle(800)
 await page.goto(BASE, { waitUntil: 'networkidle' })
-check('reminder time updated', (await text()).includes('7:30 am'))
+check('reminder time updated', (await text()).includes('6:45 am'))
 await page.screenshot({ path: `${shots}/07-today-after.png`, fullPage: true })
+
+// 11b. The therapy question, and the one rule that protects a recorded dose.
+//
+// Run last of the Today assertions, because answering it changes the ring's
+// denominator and every earlier check is relative to the total read at start.
+await page.goto(BASE, { waitUntil: 'networkidle' })
+const beforeAnswer = await text()
+check(
+  'today asks whether there is therapy',
+  /Is there radiation therapy today\?/.test(beforeAnswer),
+)
+check(
+  'temozolomide is absent until the day is answered',
+  !/Temozolomide/.test(beforeAnswer),
+)
+check(
+  'an unanswered day is never called finished',
+  /Answer today’s therapy question/.test(beforeAnswer) || /Due now|Next:/.test(beforeAnswer),
+)
+
+await page.getByRole('button', { name: /^Yes, there is radiation therapy today$/ }).click()
+await settle(800)
+await page.reload({ waitUntil: 'networkidle' })
+const afterYes = await text()
+const yesTotal = Number(afterYes.match(/\d+\/(\d+) taken/)?.[1])
+check('answering yes adds exactly one dose', yesTotal === total + 1, `${total} → ${yesTotal}`)
+check('temozolomide joins the timeline', /Temozolomide/.test(afterYes))
+
+// Record the capsule, then take the answer back. The dose must survive: a
+// recorded dose is a statement of fact, and the day being re-answered does not
+// unswallow it. This is the assertion the whole conditional-schedule feature
+// rests on.
+const tmz = page.locator('li', { hasText: 'Temozolomide' }).first()
+await tmz.getByRole('button', { name: /^Taken$/ }).click()
+await page.getByRole('button', { name: /^Taken now$/ }).click()
+await settle(800)
+await page.getByRole('button', { name: /^Change to no radiation therapy today$/ }).click()
+await settle(800)
+await page.reload({ waitUntil: 'networkidle' })
+const afterNo = await text()
+check('a recorded capsule survives the day being re-answered', /Temozolomide/.test(afterNo))
+check(
+  'and is still counted in both halves of the ring',
+  new RegExp(`\\d+/${total + 1} taken`).test(afterNo),
+  afterNo.match(/\d+\/\d+ taken/)?.[0],
+)
+await page.goto(`${BASE}/history`, { waitUntil: 'networkidle' })
+check('and still appears in the ledger', /Temozolomide/.test(await text()))
+
+// 11c. Weight — two tiles rather than a decimal key on the pad
+await page.goto(`${BASE}/logs`, { waitUntil: 'networkidle' })
+await page.getByRole('button', { name: /^Log weight$/ }).first().click()
+await page.waitForSelector('[data-weight-key="1"]')
+for (const ch of '88') await page.click(`[data-weight-key="${ch}"]`)
+await page.click('[data-weight-field="tenths"]')
+await page.click('[data-weight-key="6"]')
+const weightSheetText = await page.locator('[role=dialog]').innerText()
+check('weight sheet previews the reading', /88\.6 kg/.test(weightSheetText))
+check(
+  'weight sheet previews the change from baseline',
+  /−2\.4 kg/.test(weightSheetText),
+  weightSheetText.match(/[−+]\d+\.\d+ kg/)?.[0],
+)
+await page.getByRole('button', { name: /^Save weight$/ }).click()
+await settle(800)
+await page.reload({ waitUntil: 'networkidle' })
+check('weight persisted', /88\.6 kg/.test(await text()))
+await page.goto(BASE, { waitUntil: 'networkidle' })
+check('weight shows on today', /88\.6 kg/.test(await text()))
 
 // 12. Report
 await page.goto(`${BASE}/report`, { waitUntil: 'networkidle' })
-check('report renders', (await text()).includes('Dose ledger'))
+const reportText = await text()
+check('report renders', reportText.includes('Dose ledger'))
+check('report states each day’s therapy answer', /Radiation therapy: (yes|no|not recorded)/.test(reportText))
+check('report carries the weight section', /2b · Weight/.test(reportText))
 
 // 13. XLSX
 const dl = await Promise.all([

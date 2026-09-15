@@ -22,6 +22,7 @@ export const TONE: Record<Tone, ToneStyle> = {
   seizure: { bar: 'bg-violet', hex: '#8069b0', label: 'Seizure', labelHi: 'दौरा' },
   bp: { bar: 'bg-blue', hex: '#507fc6', label: 'Heart / BP', labelHi: 'हृदय / BP' },
   comfort: { bar: 'bg-amber', hex: '#d7972c', label: 'Comfort', labelHi: 'आराम' },
+  chemo: { bar: 'bg-plum', hex: '#8a4f7d', label: 'Chemotherapy', labelHi: 'कीमोथेरेपी' },
 }
 
 /** `medicines.tone` is a plain text column, so callers hand in `string`. */

@@ -86,6 +86,41 @@ export function shortDay(isoDate: string): string {
   return shortDate.format(new Date(`${isoDate}T12:00:00Z`))
 }
 
+/**
+ * ISO-8601 weekday for a care-date: Monday = 1 … Sunday = 7.
+ *
+ * Anchored at midday UTC like every other date helper here, so the runner's
+ * own timezone can never move it to the previous day. Note this is *not*
+ * `Date.getDay()`, which is Sunday = 0 — a medicine written as '1,4' would
+ * then be given on Sundays and Wednesdays.
+ */
+export function weekdayOf(isoDate: string): number {
+  const day = new Date(`${isoDate}T12:00:00Z`).getUTCDay()
+  return day === 0 ? 7 : day
+}
+
+const WEEKDAY_NAMES = [
+  '',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+]
+
+/** "1,4" -> "Mondays and Thursdays". */
+export function weekdayList(weekdays: string): string {
+  const names = weekdays
+    .split(',')
+    .map((n) => WEEKDAY_NAMES[Number(n.trim())])
+    .filter(Boolean)
+    .map((n) => `${n}s`)
+  if (names.length <= 1) return names[0] ?? ''
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
 export function prettyDateTime(at: Date | string): string {
   const d = typeof at === 'string' ? new Date(at) : at
   return `${shortDate.format(d)} · ${hm.format(d)}`

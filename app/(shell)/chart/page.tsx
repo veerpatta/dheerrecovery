@@ -1,6 +1,7 @@
 import { getHousehold } from '@/lib/household'
 import { getMedicines } from '@/lib/queries'
-import { prettyRxDate, prettyTime } from '@/lib/time'
+import { courseDaysLeft, courseFinished, rulesOf } from '@/lib/schedule'
+import { careDate, prettyRxDate, prettyTime, weekdayList } from '@/lib/time'
 import { sosStyleOf, toneOf } from '@/lib/tone'
 
 export const dynamic = 'force-dynamic'
@@ -20,10 +21,26 @@ export default async function ChartPage() {
   const meds = await getMedicines(household.id)
   const routine = meds.filter((m) => m.kind === 'routine')
   const sos = meds.filter((m) => m.kind === 'sos')
+  const today = careDate()
 
   function Card({ m }: { m: (typeof meds)[number] }) {
     const times = m.slots.map((s) => prettyTime(s.time)).join(' · ')
     const sosPill = sosStyleOf(m.sosStatus)
+
+    /*
+     * Which days this one is actually for. Printing "8:00 am · 8:00 pm" beside
+     * Septran with nothing saying Mondays and Thursdays would be wrong on the
+     * one page whose whole job is to be the medicine chart — and these
+     * medicines are never archived, so without the finished state they would
+     * sit here as current long after 26 October.
+     */
+    const rules = rulesOf(m)
+    const window =
+      m.courseStartDate && m.courseEndDate
+        ? `${prettyRxDate(m.courseStartDate)} – ${prettyRxDate(m.courseEndDate)}`
+        : null
+    const finished = courseFinished(rules, today)
+    const daysLeft = courseDaysLeft(rules, today)
 
     return (
       <li className="card-toned">
@@ -71,6 +88,31 @@ export default async function ChartPage() {
                 Take about {m.dosingIntervalHours} hours apart — the evening dose
                 follows {m.dosingIntervalHours} hours after the morning one was
                 actually given.
+              </p>
+            ) : null}
+            {m.weekdays ? (
+              <p className="mt-1 text-[11.5px] font-extrabold text-ink/80">
+                {weekdayList(m.weekdays)} only — not the other days.
+              </p>
+            ) : null}
+            {m.therapyOnly ? (
+              <p className="mt-1 text-[11.5px] font-extrabold text-ink/80">
+                Only on a day radiation therapy actually happened. Today asks before
+                this appears on the timeline.
+              </p>
+            ) : null}
+            {window ? (
+              <p
+                className={`mt-1 text-[11.5px] font-semibold ${
+                  finished ? 'text-muted' : 'text-ink/80'
+                }`}
+              >
+                {window}
+                {finished
+                  ? ' · course finished'
+                  : daysLeft !== null
+                    ? ` · ${daysLeft} day${daysLeft === 1 ? '' : 's'} left`
+                    : ''}
               </p>
             ) : null}
             {m.isCustom ? (
@@ -133,6 +175,11 @@ export default async function ChartPage() {
       <p className="eyebrow px-0.5">
         Routine · {routine.length} medicines · daily schedule
       </p>
+      <p className="px-0.5 text-[11.5px] leading-relaxed text-muted">
+        Not every one of these is due every day. A medicine with a course window, a
+        weekday rule, or a radiation-therapy rule says so on its own card, and
+        Today’s timeline only lists the ones actually due.
+      </p>
       <ul className="flex flex-col gap-3">
         {routine.map((m) => (
           <Card key={m.id} m={m} />
@@ -143,8 +190,8 @@ export default async function ChartPage() {
         SOS · {sos.length} guides · when something happens
       </p>
       <p className="px-0.5 text-[11.5px] leading-relaxed text-muted">
-        Only Napra‑D is on the current prescription. The rest are earlier discharge
-        instructions kept for reference and marked “confirm first.”
+        Of these, only Napra‑D and Centnil T are current. The rest are earlier
+        discharge instructions kept for reference and marked “confirm first.”
       </p>
       <ul className="flex flex-col gap-3">
         {sos.map((m) => (

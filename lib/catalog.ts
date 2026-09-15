@@ -1,11 +1,17 @@
 /**
  * Medicine catalogue transcribed from Dr Ajit Singh's Paras Hospitals
  * prescription dated 28 July 2026, plus the earlier 20 July 2026 hospital
- * discharge guide for the SOS entries.
+ * discharge guide for the SOS entries, plus Dr Ankit Agarwal's Geetanjali
+ * Cancer Centre chemoradiation sheet dated 15 September 2026.
  *
  * Clinical wording is copied verbatim from the source prescription sheet and
  * must not be paraphrased. Reminder clock times are a caregiver organiser —
- * only Betacap's 8:00 AM is explicitly printed on the prescription.
+ * only Betacap's 8:00 AM is explicitly printed on either prescription.
+ *
+ * The header constants below still name the 28 July sheet. They describe the
+ * care record as a whole and are printed as one line in the report header, so
+ * the newer sheet's provenance is carried per-medicine in `prescribedAt`
+ * instead — which is what that field is for.
  */
 
 export const PRESCRIPTION_VERSION = 'paras-ajit-singh-2026-07-28'
@@ -13,7 +19,16 @@ export const PRESCRIPTION_DATE = '2026-07-28'
 export const PRESCRIBER = 'Dr Ajit Singh'
 export const PATIENT_NAME = 'Dheer'
 
-export type Tone = 'recovery' | 'seizure' | 'bp' | 'comfort'
+/**
+ * The chemoradiation course from the 15 September 2026 Geetanjali sheet:
+ * "42 days with RT". Forty-two days counted inclusively from the sheet's own
+ * date, so 15 September through 26 October 2026.
+ */
+export const RT_COURSE_START = '2026-09-15'
+export const RT_COURSE_END = '2026-10-26'
+export const RT_PRESCRIBED_AT = 'Geetanjali Cancer Centre · 15 Sep 2026'
+
+export type Tone = 'recovery' | 'seizure' | 'bp' | 'comfort' | 'chemo'
 export type Kind = 'routine' | 'sos'
 export type SosStatus = 'current' | 'previous' | 'supportive'
 
@@ -41,6 +56,17 @@ export interface CatalogMedicine {
    * even 12-hour split is the caregiver reading of that.
    */
   dosingIntervalHours?: number
+  /**
+   * Which days this medicine is due on. Absent means every day, forever, which
+   * is what the whole 28 July prescription is. See `db/schema.ts` for the
+   * column comments and `lib/schedule.ts` for how the three compose.
+   */
+  courseStartDate?: string
+  courseEndDate?: string
+  /** ISO-8601 weekdays, comma-joined: Monday = 1 … Sunday = 7. */
+  weekdays?: string
+  /** Due only on a day the caregiver has answered "yes, therapy today". */
+  therapyOnly?: boolean
   tone: Tone
   kind: Kind
   sosStatus?: SosStatus
@@ -175,6 +201,110 @@ export const CATALOG: CatalogMedicine[] = [
     caution:
       'May cause drowsiness, dry mouth, constipation or dizziness. Avoid driving if sleepy and do not stop suddenly.',
     verify: 'Confirm Tryptomer 10 mg on the strip.',
+  },
+
+  // ------------------------------- chemoradiation · 15 Sep 2026 sheet ----
+
+  {
+    id: 'temozolomide',
+    brand: 'Temozolomide 140 mg',
+    generic: 'Temozolomide · dispensed as 100 mg + 40 mg',
+    dose: '140 mg · 100 mg capsule + 40 mg capsule',
+    form: 'Capsule',
+    purpose: 'Chemotherapy given alongside the radiotherapy course',
+    prescription: 'Once daily on a radiotherapy day · 42 days · with RT',
+    prescriptionHi:
+      'रेडियोथेरेपी वाले दिन रोज़ 1 बार · 42 दिन · RT के साथ',
+    courseDays: 42,
+    courseStartDate: RT_COURSE_START,
+    courseEndDate: RT_COURSE_END,
+    therapyOnly: true,
+    slots: [
+      {
+        key: 'am',
+        time: '07:55',
+        label: 'Therapy day · about 1 hour before radiotherapy',
+      },
+    ],
+    tone: 'chemo',
+    kind: 'routine',
+    // Deliberately says only that the rule is missing. An earlier draft named
+    // the empty-stomach gap here while asking about it, and `foodRuleOf`
+    // condensed that into an "Empty stomach" chip — a directive the sheet
+    // never gave. The question belongs in `verify`, which already asks it.
+    food: 'Food timing is not printed on the 15 September sheet.',
+    prescribedAt: RT_PRESCRIBED_AT,
+    doctorNote:
+      'Rx: Cap. Temozolomide 140 mg OD 42 days with RT (100+40). Review after 7 days with CBC, S. creatinine, SGPT.',
+    instruction:
+      'Two capsules make up the 140 mg dose — 100 mg and 40 mg together. Give only on a day radiotherapy is actually going ahead, and log it after it was swallowed.',
+    caution:
+      'This is chemotherapy and it lowers blood counts. Urgent advice for fever, chills, a sore throat, mouth ulcers, unusual bruising or bleeding, or persistent vomiting that stops the dose staying down. Do not double up for a missed day.',
+    verify:
+      'Confirm the 100 mg + 40 mg capsule pairing, whether the capsule is swallowed whole or may be opened, the empty-stomach gap before radiotherapy, and what to do on a day radiotherapy is cancelled.',
+  },
+  {
+    id: 'perinorm',
+    brand: 'Perinorm 10',
+    generic: 'Metoclopramide 10 mg',
+    dose: '1 tablet · 10 mg',
+    form: 'Tablet',
+    purpose: 'Prevents and settles nausea and vomiting during the course',
+    prescription: 'Twice daily · morning and night · 42 days',
+    prescriptionHi: 'दिन में 2 बार · सुबह और रात · 42 दिन',
+    courseDays: 42,
+    courseStartDate: RT_COURSE_START,
+    courseEndDate: RT_COURSE_END,
+    slots: [
+      {
+        key: 'am',
+        time: '07:30',
+        label: 'Morning · about 30 minutes before the capsule',
+      },
+      { key: 'pm', time: '21:00', label: 'Night' },
+    ],
+    tone: 'comfort',
+    kind: 'routine',
+    food: 'Commonly taken before food so it is working by the time the capsule is given; the 15 September sheet does not print a food rule. Confirm the gap with the treating team.',
+    prescribedAt: RT_PRESCRIBED_AT,
+    doctorNote: 'Rx: T. Perinorm (10) 1–0–1.',
+    instruction:
+      'Given every day of the 42, whether or not there is radiotherapy that day.',
+    caution:
+      'Can cause restlessness, muscle stiffness or unusual movements of the face, neck or eyes. Stop and seek advice the same day if any of those appear. Also causes drowsiness.',
+    verify:
+      'Confirm how many days in a row Perinorm should be continued, and whether it should be taken before food and how long before the capsule.',
+  },
+  {
+    id: 'septran-ds',
+    brand: 'Septran DS',
+    generic: 'Sulfamethoxazole 800 mg + trimethoprim 160 mg',
+    dose: '1 tablet · 800 mg + 160 mg',
+    form: 'Double-strength tablet',
+    purpose:
+      'Prevents a chest infection while the blood counts are low during chemoradiation',
+    prescription: 'Twice daily · Mondays and Thursdays only · 42 days',
+    prescriptionHi:
+      'दिन में 2 बार · केवल सोमवार और गुरुवार · 42 दिन',
+    courseDays: 42,
+    courseStartDate: RT_COURSE_START,
+    courseEndDate: RT_COURSE_END,
+    weekdays: '1,4',
+    slots: [
+      { key: 'am', time: '08:00', label: 'Monday & Thursday · morning' },
+      { key: 'pm', time: '20:00', label: 'Monday & Thursday · evening' },
+    ],
+    tone: 'recovery',
+    kind: 'routine',
+    food: 'Take with food and a full glass of water. The 15 September sheet does not print a food rule; this is the usual advice for the tablet and should be confirmed.',
+    prescribedAt: RT_PRESCRIBED_AT,
+    doctorNote: 'Rx: T. Septran-DS 1–0–1 (Mon / Thursday).',
+    instruction:
+      'Only on Mondays and Thursdays — not the other five days. Both tablets are given on each of those two days.',
+    caution:
+      'This is a sulfa medicine. Stop and seek advice the same day for any rash, mouth ulcers, or peeling skin. Keep fluids up.',
+    verify:
+      'The sheet prints "Septran-DS" without a strength. Confirm the tablet is the 800 mg + 160 mg double-strength one, and confirm the Monday and Thursday pattern.',
   },
 
   // ---------------------------------------------------------------- SOS ----
@@ -343,10 +473,15 @@ export const CATALOG: CatalogMedicine[] = [
 export const ROUTINE = CATALOG.filter((m) => m.kind === 'routine')
 export const SOS = CATALOG.filter((m) => m.kind === 'sos')
 
-/** Total scheduled doses in one day — 7 for this prescription. */
-export const DAILY_DOSE_COUNT = ROUTINE.reduce((n, m) => n + m.slots.length, 0)
+/*
+ * There is deliberately no DAILY_DOSE_COUNT constant. Once the chemoradiation
+ * medicines joined the chart there is no single "doses in a day": inside the
+ * 42-day course it is nine, ten, eleven or twelve depending on the weekday and
+ * on whether radiotherapy happened, and seven outside it. Ask
+ * `buildDaySchedule` for a date rather than reaching for a number.
+ */
 
-/** The prescription is written for one month. */
+/** The 28 July prescription is written for one month. */
 export const SUPPLY_DAYS = 30
 
 /**
@@ -364,6 +499,12 @@ export const SALTS: Record<string, { name: string; mg: number }[]> = {
   valprol: [{ name: 'Sodium valproate', mg: 500 }],
   betacap: [{ name: 'Propranolol', mg: 40 }],
   tryptomer: [{ name: 'Amitriptyline', mg: 10 }],
+  temozolomide: [{ name: 'Temozolomide', mg: 140 }],
+  perinorm: [{ name: 'Metoclopramide', mg: 10 }],
+  'septran-ds': [
+    { name: 'Sulfamethoxazole', mg: 800 },
+    { name: 'Trimethoprim', mg: 160 },
+  ],
 }
 
 export const EMERGENCY_CONTACTS = [
@@ -403,6 +544,10 @@ export const REVIEW_QUESTIONS = [
   'What exact symptom, minimum gap and daily maximum apply to Napra‑D?',
   'Are Zytee Gel LA, Dolo or Looz still permitted, and at what exact strength or duration?',
   'Are blood tests needed for Valprol?',
+  'Should Temozolomide be given on a day radiotherapy is cancelled, and is the dose ever made up?',
+  'How long should Perinorm continue, and what should prompt stopping it?',
+  'Confirm Septran-DS is the 800 mg + 160 mg tablet, and that Mondays and Thursdays is right.',
+  'What weight loss is worth calling about between reviews?',
 ]
 
 export const REFERENCES = [

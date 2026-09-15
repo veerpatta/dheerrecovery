@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic'
 import { useEffect } from 'react'
 import type { Band } from '@/lib/bp'
+import type { WeightBand } from '@/lib/weight'
 import type { DoseRecord } from '@/db/schema'
 import type { MedicineWithSlots } from '@/lib/queries'
 import { useChrome } from './chrome'
@@ -26,6 +27,7 @@ import { DoseTimeSheet } from './dose-time-sheet'
  */
 const SosSheet = dynamic(() => import('./sos-drawer').then((m) => m.SosSheet))
 const BpSheet = dynamic(() => import('./bp-sheet').then((m) => m.BpSheet))
+const WeightSheet = dynamic(() => import('./weight-sheet').then((m) => m.WeightSheet))
 const AddMedicineSheet = dynamic(() =>
   import('./add-medicine-sheet').then((m) => m.AddMedicineSheet),
 )
@@ -35,11 +37,15 @@ export function SheetHost({
   sosRecords,
   band,
   lastReadingAt,
+  weightBand,
+  weightBaselineGrams,
 }: {
   sos: MedicineWithSlots[]
   sosRecords: DoseRecord[]
   band: Band
   lastReadingAt: Date | string | null
+  weightBand: WeightBand
+  weightBaselineGrams: number
 }) {
   const { sheet } = useChrome()
 
@@ -54,6 +60,7 @@ export function SheetHost({
     const warm = () => {
       void import('./sos-drawer')
       void import('./bp-sheet')
+      void import('./weight-sheet')
       void import('./add-medicine-sheet')
     }
     if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
@@ -68,6 +75,9 @@ export function SheetHost({
     <>
       {sheet === 'sos' ? <SosSheet medicines={sos} records={sosRecords} /> : null}
       {sheet === 'bp' ? <BpSheet band={band} lastReadingAt={lastReadingAt} /> : null}
+      {sheet === 'weight' ? (
+        <WeightSheet band={weightBand} baselineGrams={weightBaselineGrams} />
+      ) : null}
       {sheet === 'add' ? <AddMedicineSheet /> : null}
       <DoseTimeSheet />
     </>

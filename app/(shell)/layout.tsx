@@ -7,6 +7,7 @@ import { SheetHost } from '@/components/sheet-host'
 import { getHousehold } from '@/lib/household'
 import { getBpReadings, getMedicines, getSosRecords } from '@/lib/queries'
 import { bandOf } from '@/lib/bp'
+import { weightBandOf } from '@/lib/weight'
 
 export const dynamic = 'force-dynamic'
 
@@ -91,6 +92,8 @@ export default async function ShellLayout({
         sosRecords={sosRecords}
         band={bandOf(household)}
         lastReadingAt={readings[0]?.measuredAt ?? null}
+        weightBand={weightBandOf(household)}
+        weightBaselineGrams={household.weightBaselineGrams}
       />
     </ChromeProvider>
   )

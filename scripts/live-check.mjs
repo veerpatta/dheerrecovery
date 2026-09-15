@@ -50,7 +50,15 @@ await page.goto(ENTRY, { waitUntil: 'networkidle' })
 const origin = new URL(page.url()).origin
 const today = await body()
 check('opens directly onto today', today.includes('Today’s medicines'))
-check('seven doses seeded', /\d\/7 taken/.test(today), today.match(/\d\/7 taken/)?.[0])
+/*
+ * The scheduled total moves with the day now: Septran DS is Mondays and
+ * Thursdays only, Temozolomide waits on the therapy answer, and the
+ * chemoradiation course ends on 26 October. So read it rather than assert it —
+ * and note the old `(\d)/7` capture took a single digit, which would simply
+ * stop matching the first time a Monday reached ten recorded doses.
+ */
+const total = Number(today.match(/\d+\/(\d+) taken/)?.[1])
+check('doses seeded', total >= 7, `${total} slots`)
 check(
   'all five routine medicines',
   ['Pantocid‑DSR 40/30', 'Betacap TR 40', 'Lacoset 100', 'Valprol CR 500', 'Tryptomer 10'].every(
@@ -59,7 +67,7 @@ check(
 )
 
 // Write, verify, then undo so a check never leaves a dose it did not observe.
-const before = Number((await body()).match(/(\d)\/7 taken/)?.[1] ?? 0)
+const before = Number((await body()).match(/(\d+)\/\d+ taken/)?.[1] ?? 0)
 await page.getByRole('button', { name: /^Taken$/ }).first().click()
 // Tapping Taken opens the time dialog; "Now" is the equivalent of the old
 // immediate record.
@@ -69,8 +77,8 @@ await settle()
 await page.reload({ waitUntil: 'networkidle' })
 check(
   'dose write persisted',
-  new RegExp(`${before + 1}/7 taken`).test(await body()),
-  (await body()).match(/\d\/7 taken/)?.[0],
+  new RegExp(`${before + 1}/${total} taken`).test(await body()),
+  (await body()).match(/\d+\/\d+ taken/)?.[0],
 )
 await page.getByRole('button', { name: /Taken ✓/ }).first().click()
 await settle()

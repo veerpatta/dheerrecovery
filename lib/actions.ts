@@ -6,12 +6,14 @@ import { redirect } from 'next/navigation'
 import { db } from '@/db'
 import {
   bpReadings,
+  careDays,
   careNotes,
   doseRecords,
   doseSlots,
   households,
   medicines,
   seizureEvents,
+  weightReadings,
 } from '@/db/schema'
 import { getHousehold } from './household'
 import { dueTimeForSlot } from './queries'
@@ -559,6 +561,114 @@ export async function deleteBp(id: string) {
   await db
     .delete(bpReadings)
     .where(and(eq(bpReadings.id, id), eq(bpReadings.householdId, h.id)))
+  refresh()
+}
+
+// -------------------------------------------------------- weight ----------
+
+export async function logWeight(formData: FormData) {
+  const h = await requireHousehold()
+  const kg = Number(formData.get('kg'))
+  const context = String(formData.get('context') ?? '').trim() || null
+  const note = String(formData.get('note') ?? '').trim() || null
+  const measuredAtRaw = String(formData.get('measuredAt') ?? '')
+
+  if (!Number.isFinite(kg) || kg < 25 || kg > 200) {
+    throw new Error('Enter a weight between 25 and 200 kg.')
+  }
+
+  const measuredAt = measuredAtRaw ? new Date(measuredAtRaw) : new Date()
+  if (Number.isNaN(measuredAt.getTime())) throw new Error('Choose a valid time.')
+  if (measuredAt.getTime() > Date.now() + 60_000) {
+    throw new Error('Reading time cannot be in the future.')
+  }
+
+  // Rounded to 100 g: the keypad enters one decimal place, and storing more
+  // precision than was actually typed would be inventing it.
+  const grams = Math.round(kg * 10) * 100
+
+  const [reading] = await db
+    .insert(weightReadings)
+    .values({ householdId: h.id, grams, context, note, measuredAt })
+    .returning({ id: weightReadings.id, grams: weightReadings.grams })
+  refresh()
+  return { reading }
+}
+
+/**
+ * The weight reference band and the baseline the percentage is measured from.
+ *
+ * Kilograms on the wire, grams in the column — the form is typed in the unit a
+ * caregiver reads off a scale, and the column holds the unit the rest of the
+ * code does arithmetic in.
+ */
+export async function updateWeightBand(formData: FormData) {
+  const h = await requireHousehold()
+  const grams = (k: string, fallback: number) => {
+    const v = Number(formData.get(k))
+    return Number.isFinite(v) && v >= 25 && v <= 200 ? Math.round(v * 10) * 100 : fallback
+  }
+  const low = grams('bandWeightLow', h.bandWeightLowGrams)
+  const high = grams('bandWeightHigh', h.bandWeightHighGrams)
+  if (low >= high) throw new Error('The low limit must be below the high one.')
+
+  await db
+    .update(households)
+    .set({
+      bandWeightLowGrams: low,
+      bandWeightHighGrams: high,
+      weightBaselineGrams: grams('weightBaseline', h.weightBaselineGrams),
+      weightBandConfirmed: formData.get('weightBandConfirmed') === 'on',
+      updatedAt: new Date(),
+    })
+    .where(eq(households.id, h.id))
+  refresh()
+}
+
+export async function deleteWeight(id: string) {
+  const h = await requireHousehold()
+  await db
+    .delete(weightReadings)
+    .where(and(eq(weightReadings.id, id), eq(weightReadings.householdId, h.id)))
+  refresh()
+}
+
+// -------------------------------------------------------- therapy days ----
+
+/**
+ * Record whether radiotherapy happened on a date — the answer that decides
+ * whether the temozolomide capsule is on that day's schedule.
+ *
+ * Upserts rather than inserting: the whole point is that it can be corrected,
+ * and `therapy: null` puts the day back to unanswered rather than asserting a
+ * "no". Dates outside the chemoradiation course are accepted; nothing reads
+ * them and refusing would only confuse.
+ */
+export async function setTherapyDay(input: {
+  careDate: string
+  therapy: boolean | null
+}) {
+  const h = await requireHousehold()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.careDate)) {
+    throw new Error('Choose a valid date.')
+  }
+  if (input.careDate > careDate()) {
+    throw new Error('That day has not happened yet.')
+  }
+
+  const answeredAt = input.therapy === null ? null : new Date()
+  await db
+    .insert(careDays)
+    .values({
+      householdId: h.id,
+      careDate: input.careDate,
+      therapy: input.therapy,
+      answeredAt,
+    })
+    .onConflictDoUpdate({
+      target: [careDays.householdId, careDays.careDate],
+      set: { therapy: input.therapy, answeredAt },
+    })
   refresh()
 }
 

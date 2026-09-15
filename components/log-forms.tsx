@@ -6,8 +6,10 @@ import {
   deleteBp,
   deleteCareNote,
   deleteSeizure,
+  deleteWeight,
   logSeizure,
   updateBand,
+  updateWeightBand,
 } from '@/lib/actions'
 import { useAction } from './chrome'
 
@@ -198,16 +200,93 @@ export function NoteForm() {
   )
 }
 
+/**
+ * The weight reference band, beside the blood-pressure one and worded the same
+ * way. Kilograms here; `updateWeightBand` converts to the grams the column
+ * holds. The baseline sits in this form because it is the other number the
+ * read-outs are measured against, and a doctor can move it.
+ */
+export function WeightBandForm({
+  band,
+}: {
+  band: { lowKg: string; highKg: string; baselineKg: string; confirmed: boolean }
+}) {
+  const { run, busy: pending } = useAction()
+
+  return (
+    <details className="no-print">
+      <summary className="flex items-center gap-1 text-xs font-bold text-teal">
+        Edit weight band
+        <Chevron />
+      </summary>
+      <form
+        action={(fd) => run(() => updateWeightBand(fd), 'Weight band saved ✓')}
+        className="flex flex-col gap-2 pt-2"
+      >
+        <p className="text-[11px] leading-relaxed text-muted">
+          Edit these only on the treating doctor’s instruction. They change what the
+          dashboard calls above or below band — never what to eat or take.
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          {(
+            [
+              ['bandWeightLow', 'Low (kg)', band.lowKg],
+              ['bandWeightHigh', 'High (kg)', band.highKg],
+              ['weightBaseline', 'Baseline (kg)', band.baselineKg],
+            ] as const
+          ).map(([name, label, value]) => (
+            <label key={name} className="space-y-1">
+              <span className="eyebrow text-[10px]">{label}</span>
+              <input
+                name={name}
+                type="number"
+                step="0.1"
+                defaultValue={value}
+                className="field"
+              />
+            </label>
+          ))}
+        </div>
+        <label className="flex items-start gap-2 rounded-xl border border-line bg-white p-3 text-xs leading-relaxed text-ink/80">
+          <input
+            name="weightBandConfirmed"
+            type="checkbox"
+            defaultChecked={band.confirmed}
+            className="mt-0.5 accent-teal"
+          />
+          <span>
+            These limits were confirmed by the treating doctor for this patient.
+          </span>
+        </label>
+        <button
+          type="submit"
+          disabled={pending}
+          aria-label="Save weight band"
+          className="btn-primary h-11 w-full"
+        >
+          Save weight band
+        </button>
+      </form>
+    </details>
+  )
+}
+
 export function DeleteButton({
   id,
   kind,
 }: {
   id: string
-  kind: 'bp' | 'seizure' | 'note'
+  kind: 'bp' | 'weight' | 'seizure' | 'note'
 }) {
   const { run, busy: pending } = useAction()
   const fn =
-    kind === 'bp' ? deleteBp : kind === 'seizure' ? deleteSeizure : deleteCareNote
+    kind === 'bp'
+      ? deleteBp
+      : kind === 'weight'
+        ? deleteWeight
+        : kind === 'seizure'
+          ? deleteSeizure
+          : deleteCareNote
 
   return (
     <button

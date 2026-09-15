@@ -5,18 +5,22 @@ import { cache } from 'react'
 import { canBatch, db } from '@/db'
 import {
   bpReadings,
+  careDays,
   careNotes,
   doseRecords,
   doseSlots,
   households,
   medicines,
   seizureEvents,
+  weightReadings,
   type BpReading,
+  type CareDay,
   type CareNote,
   type DoseRecord,
   type Household,
   type Medicine,
   type SeizureEvent,
+  type WeightReading,
 } from '@/db/schema'
 import {
   CATALOG,
@@ -25,7 +29,8 @@ import {
   PRESCRIPTION_DATE,
   PRESCRIPTION_VERSION,
 } from './catalog'
-import { careClock, careDate, careMinutes, minutesOf } from './time'
+import { medicineApplies } from './schedule'
+import { addDays, careClock, careDate, careMinutes, minutesOf } from './time'
 
 export type MedicineWithSlots = Medicine & { slots: (typeof doseSlots.$inferSelect)[] }
 
@@ -40,7 +45,8 @@ export async function findHousehold(careCode: string): Promise<Household | null>
 }
 
 /**
- * Create a household pre-loaded with the 28 July 2026 prescription.
+ * Create a household pre-loaded with the whole catalogue — the 28 July 2026
+ * prescription and the 15 September 2026 chemoradiation sheet both.
  *
  * Safe to call concurrently. On a first visit to an empty database, Next
  * prefetches the nav links, so several requests race to seed at once — each
@@ -90,6 +96,14 @@ export async function createHousehold(careCode: string): Promise<Household> {
         sosStatus: m.sosStatus ?? null,
         symptom: m.symptom ?? null,
         dosingIntervalHours: m.dosingIntervalHours ?? null,
+        // These four must stay in step with the catalogue. Miss one and a
+        // freshly seeded record schedules a daily chemotherapy capsule that
+        // the migration correctly gated on the therapy answer — a divergence
+        // only a test against an empty database would ever see.
+        courseStartDate: m.courseStartDate ?? null,
+        courseEndDate: m.courseEndDate ?? null,
+        weekdays: m.weekdays ?? null,
+        therapyOnly: m.therapyOnly ?? false,
         repeatableLog: m.repeatableLog ?? false,
         food: m.food,
         prescribedAt: m.prescribedAt,
@@ -170,10 +184,30 @@ const SOS_PAGE = 50
  */
 const BP_PAGE = 400
 
+/**
+ * Therapy answers ride along in the shell's batch rather than costing Today a
+ * round-trip of its own — on the Neon HTTP path the whole tuple is one request,
+ * which is the entire point of batching it. A page covers the 42-day
+ * chemoradiation course and the report's 30-day default with room to spare; a
+ * report asked for an older `from` falls out to its own query, exactly as an
+ * over-sized BP read does. Unlike the BP page this is bounded by date, because
+ * that is what the callers ask in.
+ */
+const CARE_DAY_PAGE_DAYS = 120
+
+/**
+ * Weight rides in the batch for the same reason as the therapy answers, and
+ * costs even less: at most one reading a day, against a page of four hundred
+ * blood-pressure rows. Today would otherwise have grown a third round-trip.
+ */
+const WEIGHT_PAGE = 400
+
 interface Core {
   medicines: MedicineWithSlots[]
   bp: BpReading[]
   sos: DoseRecord[]
+  careDays: CareDay[]
+  weight: WeightReading[]
 }
 
 const loadCore = cache(async (householdId: string): Promise<Core> => {
@@ -184,7 +218,7 @@ const loadCore = cache(async (householdId: string): Promise<Core> => {
     .from(medicines)
     .where(and(eq(medicines.householdId, householdId), eq(medicines.kind, 'sos')))
 
-  const [meds, slotRows, bp, sos] = await runAll([
+  const [meds, slotRows, bp, sos, days, weight] = await runAll([
     db
       .select()
       .from(medicines)
@@ -213,6 +247,22 @@ const loadCore = cache(async (householdId: string): Promise<Core> => {
       )
       .orderBy(desc(doseRecords.createdAt))
       .limit(SOS_PAGE),
+    db
+      .select()
+      .from(careDays)
+      .where(
+        and(
+          eq(careDays.householdId, householdId),
+          gte(careDays.careDate, addDays(careDate(), -CARE_DAY_PAGE_DAYS)),
+        ),
+      )
+      .orderBy(desc(careDays.careDate)),
+    db
+      .select()
+      .from(weightReadings)
+      .where(eq(weightReadings.householdId, householdId))
+      .orderBy(desc(weightReadings.measuredAt))
+      .limit(WEIGHT_PAGE),
   ] as const)
 
   const byMed = new Map<string, (typeof doseSlots.$inferSelect)[]>()
@@ -226,8 +276,63 @@ const loadCore = cache(async (householdId: string): Promise<Core> => {
     medicines: meds.map((m) => ({ ...m, slots: byMed.get(m.id) ?? [] })),
     bp,
     sos,
+    careDays: days,
+    weight,
   }
 })
+
+export async function getWeightReadings(
+  householdId: string,
+  limit = WEIGHT_PAGE,
+): Promise<WeightReading[]> {
+  if (limit > WEIGHT_PAGE) {
+    return db
+      .select()
+      .from(weightReadings)
+      .where(eq(weightReadings.householdId, householdId))
+      .orderBy(desc(weightReadings.measuredAt))
+      .limit(limit)
+  }
+  const page = (await loadCore(householdId)).weight
+  return page.length > limit ? page.slice(0, limit) : page
+}
+
+/**
+ * Therapy answers by care-date, for `buildDaySchedule`.
+ *
+ * A date absent from the map has not been answered. A row whose `therapy` is
+ * null is the same thing — it exists because a note was left, or because an
+ * answer was taken back — so it is dropped here rather than being mistaken for
+ * a "no" by `.has()`.
+ */
+export async function getTherapyDays(
+  householdId: string,
+  from: string,
+  to: string,
+): Promise<Map<string, boolean>> {
+  const pageStart = addDays(careDate(), -CARE_DAY_PAGE_DAYS)
+  const rows =
+    from < pageStart
+      ? await db
+          .select()
+          .from(careDays)
+          .where(
+            and(
+              eq(careDays.householdId, householdId),
+              gte(careDays.careDate, from),
+              lte(careDays.careDate, to),
+            ),
+          )
+      : (await loadCore(householdId)).careDays
+
+  const out = new Map<string, boolean>()
+  for (const r of rows) {
+    if (r.therapy === null) continue
+    if (r.careDate < from || r.careDate > to) continue
+    out.set(r.careDate, r.therapy)
+  }
+  return out
+}
 
 /**
  * The archived/active split is a filter over one cached load, not a second
@@ -266,6 +371,13 @@ export interface ScheduledDose {
    */
   rollsOver: boolean
   intervalHours: number | null
+  /**
+   * False when this slot is only here because a dose was recorded against it —
+   * a Septran tablet given on a Tuesday, or a Temozolomide capsule on a day
+   * later re-answered as "no therapy". The record is never hidden; this is how
+   * the report and the export say why it is there.
+   */
+  applies: boolean
 }
 
 const recordKey = (medicineId: string, slotKey: string) => `${medicineId}::${slotKey}`
@@ -343,6 +455,20 @@ function dueTimes(
   return out
 }
 
+export interface DayScheduleOptions {
+  now?: Date
+  /**
+   * Therapy answers by care-date. A date that is absent has not been answered,
+   * which schedules the same as "no" but reads differently on screen.
+   *
+   * Deliberately not optional. A caller that forgot to pass it would silently
+   * drop every therapy-gated dose out of the report, the export and the
+   * adherence figures, with nothing anywhere to say so. Required, it is a
+   * build error instead.
+   */
+  therapyDays: Map<string, boolean>
+}
+
 /**
  * Build the ordered list of scheduled doses for one date, joined to whatever
  * was actually recorded. A slot with no record is "not-recorded" once its
@@ -353,8 +479,10 @@ export function buildDaySchedule(
   meds: MedicineWithSlots[],
   records: DoseRecord[],
   isoDate: string,
-  now: Date = new Date(),
+  options: DayScheduleOptions,
 ): ScheduledDose[] {
+  const now = options.now ?? new Date()
+  const therapy = options.therapyDays.get(isoDate)
   const today = careDate(now)
   const nowMinutes = careMinutes(now)
 
@@ -367,9 +495,27 @@ export function buildDaySchedule(
   const doses: ScheduledDose[] = []
   for (const m of meds) {
     if (m.kind !== 'routine') continue
+    const applies = medicineApplies(m, isoDate, therapy)
+    /*
+     * Note `dueTimes` is asked for every slot, applicable or not. It chains a
+     * medicine's slots in clock order and the `due.get(...)!` below depends on
+     * the map being complete; filtering inside it would let a dropped slot
+     * become the chain's "immediately previous" one. Nothing with a dosing
+     * interval is conditionally scheduled today, which is exactly why this
+     * would be introduced later by accident.
+     */
     const due = dueTimes(m, byKey, isoDate)
     for (const s of m.slots) {
       const record = byKey.get(recordKey(m.id, s.slotKey)) ?? null
+      /*
+       * A recorded dose is a statement of fact and never disappears — not when
+       * the day is re-answered "no therapy", not when the course window has
+       * passed, not when a Monday-only tablet was given on a Tuesday. It can
+       * only ever arrive here as taken or skipped, because the status branch
+       * below reads the record when there is one, so this rule cannot invent a
+       * missed dose. It can only make the record more complete.
+       */
+      if (!applies && !record) continue
       const { time, derivedFrom, rollsOver } = due.get(s.slotKey)!
       let status: DoseStatus
       if (record) {
@@ -392,6 +538,7 @@ export function buildDaySchedule(
         derivedFrom,
         rollsOver,
         intervalHours: m.dosingIntervalHours,
+        applies,
       })
     }
   }
@@ -408,6 +555,11 @@ export function buildDaySchedule(
  * than rendering the day — `recordDose` stores this as `scheduledTime` so
  * drift, the on-time score and the report all measure against the time the
  * dose was actually due, not the printed reminder.
+ *
+ * Deliberately not gated on whether the medicine applies to the date. A
+ * back-dated correction on a day since re-answered "no therapy" still needs
+ * its stamp; returning null here would send `recordDose` to the printed
+ * reminder instead, which is the wrong baseline to measure drift against.
  */
 export function dueTimeForSlot(
   medicine: MedicineWithSlots,

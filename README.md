@@ -1,8 +1,10 @@
 # Dheer Recovery Medicines
 
-A caregiver organiser for the 28 July 2026 Paras Hospitals prescription from
-Dr Ajit Singh: daily dose tracking, blood-pressure logging and analysis,
-seizure watch, caregiver notes, and doctor-ready Excel/PDF exports.
+A caregiver organiser for two prescriptions — the 28 July 2026 Paras Hospitals
+sheet from Dr Ajit Singh, and the 15 September 2026 Geetanjali Cancer Centre
+chemoradiation sheet from Dr Ankit Agarwal: daily dose tracking, blood-pressure
+and weight logging with analysis, seizure watch, caregiver notes, and
+doctor-ready Excel/PDF exports.
 
 Rebuilt from the original browser-only prototype onto **Next.js 15 + Neon
 Postgres**, so the record is shared across every caregiver's phone instead of
@@ -35,11 +37,15 @@ scrolling screen, and a five-tab bottom bar. Wider viewports get the same
 column centred on the page rather than a separate desktop layout — this is a
 tool caregivers use on a phone at the bedside.
 
-Four actions open as bottom sheets rather than pages, because they are things
-a caregiver reaches for mid-task: **SOS medicines**, **Log BP** (a numeric
-keypad, not number spinners), **Add medicine**, and the **dose time** dialog.
+Five actions open as bottom sheets rather than pages, because they are things
+a caregiver reaches for mid-task: **SOS medicines**, **Log BP** and **Log
+weight** (numeric keypads, not number spinners), **Add medicine**, and the
+**dose time** dialog.
 
-SOS and Log BP are floating buttons above the nav on every screen. Tapping
+SOS and Log BP are floating buttons above the nav on every screen. Log weight
+deliberately is not: it is a once-a-day planned action performed standing on a
+scale, not something reached for one-handed mid-task, so it lives on the Today
+card and on `/logs` rather than adding a third permanent control. Tapping
 **Taken** on a dose opens the time dialog — a big "Now", one-tap "15m ago"
 style chips, and a custom time — because caregivers log after settling the
 patient, not during, and recording the tap instant quietly corrupts every
@@ -88,14 +94,14 @@ thing standing between a stranger and the medical data.
 
 | Route            | Purpose                                                    |
 | ---------------- | ---------------------------------------------------------- |
-| `/`              | Today — progress ring, BP card, the 7 doses, Taken/Skip    |
-| `/chart`         | Full medicine chart: 5 routine + 5 SOS, all clinical text  |
+| `/`              | Today — ring, therapy question, BP + weight cards, doses  |
+| `/chart`         | Full medicine chart: 8 routine + 5 SOS, all clinical text  |
 | `/history`       | Dose map, on-time score, salt intake, ledger, exports      |
 | `/safety`        | Emergency numbers, the four safety rules, review questions |
-| `/logs`          | BP intelligence, 14-day strip, seizure watch, notes        |
+| `/logs`          | BP + weight analysis, 14-day strips, seizure watch, notes  |
 | `/settings`      | Alert lead time, reminder times, add medicine              |
 | `/report`        | Printable multi-page doctor report (Save as PDF)           |
-| `/export/xlsx`   | Five-worksheet Excel export                                |
+| `/export/xlsx`   | Seven-worksheet Excel export                               |
 | `/c/<code>/…`    | Permanent redirect to the equivalent path above            |
 
 ## Local development
@@ -113,16 +119,31 @@ the app runs against a local Postgres with no Neon account.
 
 ## Database
 
-Seven tables — `households`, `medicines`, `dose_slots`, `dose_records`,
-`bp_readings`, `seizure_events`, `care_notes`. Creating a record seeds the ten
-catalogue medicines and their reminder slots from `lib/catalog.ts`, which holds
-the prescription text transcribed verbatim.
+Nine tables — `households`, `medicines`, `dose_slots`, `dose_records`,
+`care_days`, `bp_readings`, `weight_readings`, `seizure_events`, `care_notes`.
+Creating a record seeds the thirteen catalogue medicines and their reminder
+slots from `lib/catalog.ts`, which holds the prescription text transcribed
+verbatim.
 
-Three design notes worth keeping:
+`lib/catalog.ts` is read **only** by `createHousehold()`, so it reaches a new
+record and never one already deployed. Every catalogue change therefore ships
+with a hand-written data migration as well — see `0002`, `0003` and `0004`.
+
+Five design notes worth keeping:
 
 - **A dose row only exists once a caregiver taps.** "Not recorded" is the
   absence of a row, never an inferred "missed" — the app must not imply a dose
-  was skipped when nobody wrote it down.
+  was skipped when nobody wrote it down. `care_days.therapy` follows the same
+  rule: an absent row means nobody has said yet, never "no".
+- **Not every medicine is due every day, and a recorded dose never vanishes.**
+  `lib/schedule.ts` composes three rules — a course window, a weekday
+  restriction (Septran DS is Mondays and Thursdays), and the therapy gate
+  (Temozolomide only on a day Today has been answered "yes"). But
+  `buildDaySchedule` keeps any slot that *has a record*, whichever rule would
+  otherwise drop it. Re-answering a day "no therapy" does not unswallow the
+  capsule, and the export flags such a row "Off schedule" rather than hiding
+  it. That rule can only ever surface a `taken` or `skipped` dose, so it can
+  never invent a missed one.
 - **All dates resolve through `Asia/Kolkata`.** Vercel functions run in UTC; a
   9:30 pm dose would otherwise land on the wrong date after 18:30 UTC.
 - **`medicines.dosing_interval_hours` drives the 12-hour rule.** Lacoset and

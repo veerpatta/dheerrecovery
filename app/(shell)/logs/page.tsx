@@ -1,9 +1,31 @@
 import { BpChart } from '@/components/bp-chart'
-import { BandForm, DeleteButton, NoteForm, SeizureForm } from '@/components/log-forms'
+import { SheetTrigger } from '@/components/chrome'
+import {
+  BandForm,
+  DeleteButton,
+  NoteForm,
+  SeizureForm,
+  WeightBandForm,
+} from '@/components/log-forms'
+import { WeightChart } from '@/components/weight-chart'
 import { bandOf, bpStrip, classify, summarise } from '@/lib/bp'
 import { getHousehold } from '@/lib/household'
-import { getBpReadings, getCareNotes, getSeizureEvents } from '@/lib/queries'
+import {
+  getBpReadings,
+  getCareNotes,
+  getSeizureEvents,
+  getWeightReadings,
+} from '@/lib/queries'
 import { prettyDateTime, shortDay } from '@/lib/time'
+import {
+  classifyWeight,
+  formatDeltaKg,
+  formatKg,
+  formatPercent,
+  summariseWeight,
+  weightBandOf,
+  weightStrip,
+} from '@/lib/weight'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,15 +50,25 @@ export default async function LogsPage({
     ? Number(sp.days)
     : 7
 
-  const [readings, seizures, notes] = await Promise.all([
+  const [readings, seizures, notes, weights] = await Promise.all([
     getBpReadings(household.id, 400),
     getSeizureEvents(household.id),
     getCareNotes(household.id),
+    getWeightReadings(household.id, 400),
   ])
 
   const band = bandOf(household)
   const bp = summarise(readings, band, days)
   const strip = bpStrip(readings, band, 14)
+
+  const wBand = weightBandOf(household)
+  const weight = summariseWeight(
+    weights,
+    wBand,
+    household.weightBaselineGrams,
+    days,
+  )
+  const weightDays = weightStrip(weights, wBand, 14)
 
   // The list, the chart and the averages must all describe the same set —
   // `summarise` windows by care-date, so re-filtering here would disagree.
@@ -219,6 +251,187 @@ export default async function LogsPage({
           </p>
           <div className="mt-2">
             <BandForm band={{ ...band, confirmed: household.bandConfirmed }} />
+          </div>
+        </div>
+      </section>
+
+      <section className="card flex flex-col gap-2.5">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="eyebrow">
+              <span className="lang-en">Weight</span>
+              <span className="lang-hi">वज़न</span>
+            </p>
+            <h2 className="mt-1 text-[15px] font-extrabold text-navy">
+              <span className="lang-en">Weight through the course</span>
+              <span className="lang-hi">कोर्स के दौरान वज़न</span>
+            </h2>
+          </div>
+          <SheetTrigger
+            sheet="weight"
+            aria-label="Log weight"
+            className="shrink-0 rounded-full border-[1.5px] border-teal px-3.5 py-2 text-[11.5px] font-bold text-teal transition active:scale-95 no-print"
+          >
+            <span className="lang-en" aria-hidden>
+              Log weight
+            </span>
+            <span className="lang-hi" aria-hidden>
+              वज़न दर्ज करें
+            </span>
+          </SheetTrigger>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2.5">
+          <div>
+            <p className="eyebrow text-[10px]">Latest</p>
+            <p className="mt-0.5 text-xl font-extrabold text-navy">
+              {weight.latest ? `${formatKg(weight.latest.grams)} kg` : '—'}
+            </p>
+            <p className="text-[10.5px] text-muted">
+              {weight.latest ? prettyDateTime(weight.latest.measuredAt) : 'no reading yet'}
+            </p>
+          </div>
+          <div>
+            <p className="eyebrow text-[10px]">From baseline</p>
+            <p
+              className={`mt-0.5 text-xl font-extrabold ${
+                weight.change?.flagged ? 'text-coral' : 'text-navy'
+              }`}
+            >
+              {weight.change ? formatDeltaKg(weight.change.deltaGrams) : '—'}
+            </p>
+            <p className="text-[10.5px] text-muted">
+              {weight.change
+                ? `${formatPercent(weight.change.percent)} of ${formatKg(household.weightBaselineGrams)} kg`
+                : `baseline ${formatKg(household.weightBaselineGrams)} kg`}
+            </p>
+          </div>
+          <div>
+            <p className="eyebrow text-[10px]">{days}-day average</p>
+            <p className="mt-0.5 text-xl font-extrabold text-navy">
+              {weight.avgGrams != null ? `${formatKg(weight.avgGrams)} kg` : '—'}
+            </p>
+            <p className="text-[10.5px] text-muted">
+              {weight.windowCount} reading{weight.windowCount === 1 ? '' : 's'}
+            </p>
+          </div>
+          <div>
+            <p className="eyebrow text-[10px]">Outside band</p>
+            <p className="mt-0.5 text-xl font-extrabold text-navy">
+              {weight.low + weight.high}
+            </p>
+            <p className="text-[10.5px] text-muted">
+              {weight.low} below · {weight.high} above
+            </p>
+          </div>
+        </div>
+
+        <WeightChart
+          readings={weight.windowReadings}
+          band={wBand}
+          baselineGrams={household.weightBaselineGrams}
+        />
+
+        {weight.observations.length ? (
+          <div>
+            <p className="eyebrow">Smart observations</p>
+            <ul className="mt-2 flex flex-col gap-2">
+              {weight.observations.map((o, i) => (
+                <li
+                  key={i}
+                  className="flex gap-2 rounded-xl bg-paper px-2.5 py-2.5 text-[12.5px] leading-relaxed text-ink/85"
+                >
+                  <strong className="text-teal">{i + 1}</strong>
+                  <span>{o}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        <div>
+          <p className="eyebrow">14-day strip</p>
+          <div className="mt-2 flex gap-1 pb-1">
+            {weightDays.map((d) => (
+              <div
+                key={d.isoDate}
+                className={`flex min-w-0 flex-1 flex-col items-center rounded-lg px-0.5 py-1.5 text-[10px] font-bold ${STRIP_STYLE[d.worst]}`}
+                title={`${shortDay(d.isoDate)} · ${d.count} reading${d.count === 1 ? '' : 's'}`}
+              >
+                <span>{d.day}</span>
+                <span className="opacity-70">{d.count || '·'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="eyebrow">Daily history</p>
+          {weight.windowReadings.length ? (
+            <ul className="mt-2 flex flex-col gap-2">
+              {weight.windowReadings.map((r) => {
+                const cls = classifyWeight(r.grams, wBand)
+                return (
+                  <li
+                    key={r.id}
+                    className="flex items-start justify-between gap-2.5 rounded-xl bg-paper px-2.5 py-2.5"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[13.5px] font-extrabold text-navy">
+                        {formatKg(r.grams)} kg
+                        <span
+                          className={`pill ml-2 ${
+                            cls === 'low'
+                              ? 'bg-coral-soft text-coral'
+                              : cls === 'high'
+                                ? 'bg-amber/15 text-amber'
+                                : 'bg-mint text-teal'
+                          }`}
+                        >
+                          {cls === 'in-band'
+                            ? 'In band'
+                            : cls === 'low'
+                              ? 'Below band'
+                              : 'Above band'}
+                        </span>
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-muted">
+                        {prettyDateTime(r.measuredAt)}
+                        {r.context ? ` · ${r.context}` : ''}
+                      </p>
+                      {r.note ? (
+                        <p className="mt-0.5 text-[11px] text-muted">{r.note}</p>
+                      ) : null}
+                    </div>
+                    <DeleteButton id={r.id} kind="weight" />
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <p className="mt-2 text-[12.5px] text-muted">No weights match this view.</p>
+          )}
+        </div>
+
+        <div className="rounded-xl bg-paper px-3 py-2.5">
+          <p className="eyebrow text-[10px]">Reference band only</p>
+          <p className="mt-0.5 text-[11.5px] leading-relaxed text-ink/80">
+            {formatKg(wBand.lowGrams)} to {formatKg(wBand.highGrams)} kg, against a{' '}
+            {formatKg(household.weightBaselineGrams)} kg baseline. A single weighing
+            does not establish a trend.{' '}
+            {household.weightBandConfirmed
+              ? 'These limits are marked as doctor-confirmed.'
+              : 'These limits are not yet marked as doctor-confirmed.'}
+          </p>
+          <div className="mt-2">
+            <WeightBandForm
+              band={{
+                lowKg: formatKg(wBand.lowGrams),
+                highKg: formatKg(wBand.highGrams),
+                baselineKg: formatKg(household.weightBaselineGrams),
+                confirmed: household.weightBandConfirmed,
+              }}
+            />
           </div>
         </div>
       </section>

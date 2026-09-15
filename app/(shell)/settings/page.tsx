@@ -7,7 +7,12 @@ import {
   SlotTimeRow,
 } from '@/components/settings-forms'
 import { getHousehold } from '@/lib/household'
-import { buildDaySchedule, getDoseRecords, getMedicines } from '@/lib/queries'
+import {
+  buildDaySchedule,
+  getDoseRecords,
+  getMedicines,
+  getTherapyDays,
+} from '@/lib/queries'
 import { careDate } from '@/lib/time'
 
 export const dynamic = 'force-dynamic'
@@ -16,9 +21,10 @@ export default async function SettingsPage() {
   const household = await getHousehold()
 
   const today = careDate()
-  const [meds, records] = await Promise.all([
+  const [meds, records, therapyDays] = await Promise.all([
     getMedicines(household.id),
     getDoseRecords(household.id, today, today),
+    getTherapyDays(household.id, today, today),
   ])
   const routine = meds.filter((m) => m.kind === 'routine')
 
@@ -74,9 +80,14 @@ export default async function SettingsPage() {
           for a dose that is due 8:20 pm pushes toward a shorter gap than the
           prescription intends — the wrong direction for an anti-seizure
           medicine.
+
+          On a day nobody has answered the therapy question, Temozolomide has
+          no slot and so gets no reminder. That is deliberate, not an oversight:
+          a notification for a dose that may not be due today would be the app
+          guessing. The prompt on Today is what does the nagging instead.
         */}
         <ReminderRunner
-          slots={buildDaySchedule(meds, records, today).map((d) => ({
+          slots={buildDaySchedule(meds, records, today, { therapyDays }).map((d) => ({
             id: `${d.medicine.id}-${d.slotKey}`,
             brand: d.medicine.brand,
             label: d.label,

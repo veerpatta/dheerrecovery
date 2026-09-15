@@ -18,6 +18,12 @@
   --color-amber: #d7972c;
   --color-blue: #507fc6;
   --color-violet: #8069b0;
+  /*
+   * Chemotherapy. Far enough from the seizure violet to be told apart at the
+   * 4px width of a chart spine, and deliberately not in the coral family,
+   * which this app uses to mean danger and SOS rather than a category.
+   */
+  --color-plum: #8a4f7d;
 
   /*
    * Status washes for the timeline. The bright amber and coral above are fills

@@ -8,6 +8,8 @@ import {
   getDoseRecords,
   getMedicines,
   getSeizureEvents,
+  getTherapyDays,
+  getWeightReadings,
 } from '@/lib/queries'
 import { getHousehold } from '@/lib/household'
 import {
@@ -16,7 +18,9 @@ import {
   dateRange,
   driftMinutes,
   prettyTime,
+  weekdayList,
 } from '@/lib/time'
+import { formatKg } from '@/lib/weight'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,13 +46,24 @@ export async function GET(request: Request) {
     ? url.searchParams.get('from')!
     : addDays(to, -29)
 
-  const [meds, allMeds, records, readings, seizures, notes] = await Promise.all([
+  const [
+    meds,
+    allMeds,
+    records,
+    readings,
+    seizures,
+    notes,
+    therapyDays,
+    weights,
+  ] = await Promise.all([
     getMedicines(household.id),
     getAllMedicines(household.id),
     getDoseRecords(household.id, from, to),
     getBpReadings(household.id, 1000),
     getSeizureEvents(household.id),
     getCareNotes(household.id),
+    getTherapyDays(household.id, from, to),
+    getWeightReadings(household.id, 1000),
   ])
 
   const wb = new ExcelJS.Workbook()
@@ -65,6 +80,8 @@ export async function GET(request: Request) {
     { header: 'SOS status', key: 'sos', width: 14 },
     { header: 'Prescribed', key: 'rx', width: 38 },
     { header: 'Reminder times', key: 'times', width: 20 },
+    { header: 'Which days', key: 'days', width: 28 },
+    { header: 'Course window', key: 'window', width: 24 },
     { header: 'Doctor wrote', key: 'note', width: 40 },
     { header: 'Food', key: 'food', width: 46 },
     { header: 'How', key: 'how', width: 46 },
@@ -81,6 +98,17 @@ export async function GET(request: Request) {
       sos: m.sosStatus ?? '',
       rx: m.prescription ?? '',
       times: m.slots.map((s) => prettyTime(s.time)).join(' · '),
+      days: m.weekdays
+        ? `${weekdayList(m.weekdays)} only`
+        : m.therapyOnly
+          ? 'Radiation therapy days only'
+          : m.kind === 'routine'
+            ? 'Every day'
+            : '',
+      window:
+        m.courseStartDate && m.courseEndDate
+          ? `${m.courseStartDate} to ${m.courseEndDate}`
+          : '',
       note: m.doctorNote ?? '',
       food: m.food ?? '',
       how: m.instruction ?? '',
@@ -105,11 +133,14 @@ export async function GET(request: Request) {
     { header: 'Status', key: 'status', width: 14 },
     { header: 'Recorded at', key: 'taken', width: 20 },
     { header: 'Difference (min)', key: 'drift', width: 16 },
+    { header: 'Therapy day', key: 'therapy', width: 13 },
+    { header: 'Off schedule', key: 'off', width: 13 },
     { header: 'Note', key: 'note', width: 34 },
   ]
   for (const date of dateRange(from, to)) {
     if (date < household.courseStart) continue
-    for (const d of buildDaySchedule(meds, records, date)) {
+    const therapy = therapyDays.has(date) ? therapyDays.get(date)! : null
+    for (const d of buildDaySchedule(meds, records, date, { therapyDays })) {
       const drift =
         d.record?.takenAt && d.record.scheduledTime
           ? driftMinutes(date, d.record.scheduledTime, new Date(d.record.takenAt))
@@ -130,6 +161,11 @@ export async function GET(request: Request) {
             })
           : '',
         drift: drift ?? '',
+        therapy: therapy === null ? 'Not recorded' : therapy ? 'Yes' : 'No',
+        // A row present only because a dose was recorded against it — the
+        // capsule on a day later re-answered "no", or a Monday-only tablet
+        // given on a Tuesday. Never hidden, always explained.
+        off: d.applies ? '' : 'Yes',
         note: d.record?.note ?? '',
       })
     }
@@ -195,6 +231,34 @@ export async function GET(request: Request) {
     })
   }
   styleHeader(bpSheet)
+
+  // ---------------------------------------------------- 4b. Weight log ----
+  const weightSheet = wb.addWorksheet('Weight log')
+  weightSheet.columns = [
+    { header: 'Measured at', key: 'at', width: 22 },
+    { header: 'Weight (kg)', key: 'kg', width: 12 },
+    { header: 'From baseline (kg)', key: 'delta', width: 18 },
+    { header: 'From baseline (%)', key: 'pct', width: 18 },
+    { header: 'Context', key: 'context', width: 20 },
+    { header: 'Note', key: 'note', width: 36 },
+  ]
+  for (const r of weights) {
+    const delta = r.grams - household.weightBaselineGrams
+    weightSheet.addRow({
+      at: new Date(r.measuredAt).toLocaleString('en-GB', {
+        timeZone: 'Asia/Kolkata',
+      }),
+      kg: Number(formatKg(r.grams)),
+      delta: Number((delta / 1000).toFixed(1)),
+      pct:
+        household.weightBaselineGrams > 0
+          ? Number(((delta / household.weightBaselineGrams) * 100).toFixed(1))
+          : '',
+      context: r.context ?? '',
+      note: r.note ?? '',
+    })
+  }
+  styleHeader(weightSheet)
 
   // ----------------------------------------- 5. Seizures & care notes ----
   const recovery = wb.addWorksheet('Recovery logs')

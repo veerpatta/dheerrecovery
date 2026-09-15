@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from 'react'
 
-export type SheetName = 'sos' | 'bp' | 'add' | 'dose'
+export type SheetName = 'sos' | 'bp' | 'weight' | 'add' | 'dose'
 type Sync = 'idle' | 'saving' | 'synced'
 
 /**

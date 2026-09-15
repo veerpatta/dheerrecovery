@@ -1,10 +1,17 @@
 import Link from 'next/link'
 import { RangeForm } from '@/components/range-form'
 import { getHousehold } from '@/lib/household'
-import { getAllMedicines, getDoseRecords, getMedicines } from '@/lib/queries'
+import {
+  getAllMedicines,
+  getDoseRecords,
+  getMedicines,
+  getTherapyDays,
+} from '@/lib/queries'
 import {
   buildDoseMatrix,
+  cellAt,
   intakeTotals,
+  matrixColumns,
   onTimeScore,
   perfectDays,
   totals,
@@ -53,10 +60,11 @@ export default async function HistoryPage({
   const from = isDate(sp.from) ? sp.from! : addDays(to, -13)
   const [lo, hi] = from <= to ? [from, to] : [to, from]
 
-  const [meds, allMeds, records] = await Promise.all([
+  const [meds, allMeds, records, therapyDays] = await Promise.all([
     getMedicines(household.id),
     getAllMedicines(household.id),
     getDoseRecords(household.id, lo, hi),
+    getTherapyDays(household.id, lo, hi),
   ])
 
   // One pass over the grid feeds the stat cards, the dose map, the on-time
@@ -64,7 +72,10 @@ export default async function HistoryPage({
   const days = dateRange(lo, hi)
     .reverse()
     .filter((d) => d >= household.courseStart)
-  const matrix = buildDoseMatrix(meds, records, days)
+  const matrix = buildDoseMatrix(meds, records, days, { therapyDays })
+  // A stable column set, so the map stays a grid once medicines are scheduled
+  // conditionally and a Monday row is wider than a Sunday one.
+  const columns = matrixColumns(matrix)
   const stats = totals(matrix)
   const onTime = onTimeScore(matrix)
   const perfect = perfectDays(matrix)
@@ -118,7 +129,7 @@ export default async function HistoryPage({
         >
           <span className="text-sm font-extrabold text-navy">Export all to Excel</span>
           <span className="text-[11.5px] text-muted">
-            6 organised worksheets · .xlsx
+            7 organised worksheets · .xlsx
           </span>
         </a>
         <Link
@@ -175,6 +186,13 @@ export default async function HistoryPage({
               <span className="lang-hi">हर खुराक एक नज़र में</span>
             </h2>
           </div>
+          {/*
+            One column per slot across the whole range, not per slot on that
+            day. Septran is Mondays and Thursdays and Temozolomide only lands
+            on a therapy day, so rows have different lengths — laid out raw,
+            the third cell would mean a different medicine on every line and
+            the map would stop being readable without ever looking broken.
+          */}
           <div className="flex flex-col gap-1.5">
             {matrix.map((day) => {
               const t = day.cells.filter((c) => c.status === 'taken').length
@@ -184,13 +202,22 @@ export default async function HistoryPage({
                     {shortDay(day.isoDate)}
                   </span>
                   <div className="flex flex-1 gap-[3px]">
-                    {day.cells.map((c) => (
-                      <span
-                        key={`${c.medicineId}-${c.slotKey}`}
-                        title={`${c.brand} · ${prettyTime(c.time)} · ${STATUS_TEXT[c.status].label}`}
-                        className={`h-[15px] flex-1 rounded ${HEAT_CELL[c.status]}`}
-                      />
-                    ))}
+                    {columns.map((col) => {
+                      const c = cellAt(day, col)
+                      return (
+                        <span
+                          key={`${col.medicineId}-${col.slotKey}`}
+                          title={
+                            c
+                              ? `${c.brand} · ${prettyTime(c.time)} · ${STATUS_TEXT[c.status].label}`
+                              : `${col.brand} · not scheduled on ${shortDay(day.isoDate)}`
+                          }
+                          className={`h-[15px] flex-1 rounded ${
+                            c ? HEAT_CELL[c.status] : 'bg-line/40'
+                          }`}
+                        />
+                      )
+                    })}
                   </div>
                   <span className="w-[30px] shrink-0 text-right text-[10.5px] font-bold text-navy">
                     {t}/{day.cells.length}
@@ -205,6 +232,7 @@ export default async function HistoryPage({
               ['bg-coral', 'Skipped'],
               ['bg-amber/40', 'Not recorded'],
               ['bg-line', 'Upcoming'],
+              ['bg-line/40', 'Not scheduled'],
             ].map(([cls, label]) => (
               <span key={label} className="flex items-center gap-1.5">
                 <span className={`h-[11px] w-[11px] rounded ${cls}`} aria-hidden />

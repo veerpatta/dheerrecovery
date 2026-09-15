@@ -24,7 +24,13 @@ export default function ShellLoading() {
         </div>
       </div>
 
+      {/* The therapy question, which sits between the ring and the dark block. */}
+      <div className="skeleton h-[124px] rounded-2xl" />
+
       <div className="skeleton h-[168px] rounded-2xl" data-dark="true" />
+
+      {/* The weight card. */}
+      <div className="skeleton h-[136px] rounded-2xl" />
 
       <div className="flex flex-col gap-2.5 pt-1">
         {[0, 1, 2, 3].map((i) => (

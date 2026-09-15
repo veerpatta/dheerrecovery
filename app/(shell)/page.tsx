@@ -1,7 +1,9 @@
 import { SheetTrigger } from '@/components/chrome'
 import { DoseCard } from '@/components/dose-card'
 import { LoggedDoseRow } from '@/components/logged-dose-row'
+import { TherapyPrompt } from '@/components/therapy-prompt'
 import { VerifyBanner } from '@/components/verify-banner'
+import { WeightCard } from '@/components/weight-card'
 import { bandOf, classify, summarise } from '@/lib/bp'
 import { getHousehold } from '@/lib/household'
 import {
@@ -9,7 +11,11 @@ import {
   getBpReadings,
   getDoseRecords,
   getMedicines,
+  getTherapyDays,
+  getWeightReadings,
 } from '@/lib/queries'
+import { therapyQuestionApplies } from '@/lib/schedule'
+import { summariseWeight, weightBandOf } from '@/lib/weight'
 import {
   careClock,
   careDate,
@@ -32,13 +38,24 @@ export default async function TodayPage() {
   const household = await getHousehold()
 
   const today = careDate()
-  const [meds, records, readings] = await Promise.all([
+  const [meds, records, readings, therapyDays, weights] = await Promise.all([
     getMedicines(household.id),
     getDoseRecords(household.id, today, today),
     getBpReadings(household.id, 200),
+    getTherapyDays(household.id, today, today),
+    getWeightReadings(household.id, 200),
   ])
 
-  const schedule = buildDaySchedule(meds, records, today)
+  const schedule = buildDaySchedule(meds, records, today, { therapyDays })
+
+  /*
+   * Whether the day is still waiting to be told if radiotherapy happened. Until
+   * it is, the Temozolomide capsule is not on the schedule — so the ring's
+   * denominator is short by one and nothing below may call the day finished.
+   */
+  const therapyAnswer = therapyDays.has(today) ? therapyDays.get(today)! : null
+  const therapyAsked = therapyQuestionApplies(meds, today)
+  const therapyOpen = therapyAsked && therapyAnswer === null
   const taken = schedule.filter((d) => d.status === 'taken').length
   const pending = schedule.filter(
     (d) => d.status === 'not-recorded' || d.status === 'upcoming',
@@ -135,12 +152,42 @@ export default async function TodayPage() {
       .join(' ')
   }
 
-  const allDone = schedule.length > 0 && taken === schedule.length
+  const weightBand = weightBandOf(household)
+  const weight = summariseWeight(weights, weightBand, household.weightBaselineGrams)
+
+  // Sparkline over the last dozen weights, oldest to newest — same shape as the
+  // blood-pressure one above, one series instead of two.
+  const weightSource = [...weights]
+    .sort((a, b) => +new Date(a.measuredAt) - +new Date(b.measuredAt))
+    .slice(-12)
+  let weightSpark = ''
+  if (weightSource.length >= 2) {
+    const values = weightSource.map((r) => r.grams)
+    const min = Math.min(...values) - 400
+    const max = Math.max(...values) + 400
+    weightSpark = weightSource
+      .map((r, i) => {
+        const x = (i / (weightSource.length - 1)) * 106 + 2
+        const y = (1 - (r.grams - min) / Math.max(1, max - min)) * 28 + 3
+        return `${x.toFixed(1)},${y.toFixed(1)}`
+      })
+      .join(' ')
+  }
+
+  /*
+   * An unanswered therapy question keeps the day open however many cards read
+   * taken. "All 9 recorded ✓" with a chemotherapy capsule unaccounted for is
+   * the worst thing this screen could say.
+   */
+  const allDone = schedule.length > 0 && taken === schedule.length && !therapyOpen
 
   return (
     <>
       {!household.rxVerifiedAt ? (
-        <VerifyBanner prescriptionDate={prettyRxDate(household.prescriptionDate)} />
+        <VerifyBanner
+          prescriptionDate={prettyRxDate(household.prescriptionDate)}
+          count={meds.filter((m) => m.kind === 'routine').length}
+        />
       ) : null}
 
       <section className="card flex items-center gap-4">
@@ -196,14 +243,25 @@ export default async function TodayPage() {
           */}
           <p
             className={`inline-flex self-start rounded-full px-2.5 py-1 text-[11.5px] leading-snug font-bold ${
-              allDone
-                ? 'bg-teal text-white'
-                : dueNow
-                  ? 'bg-amber-soft text-amber-ink'
-                  : 'bg-mint text-teal'
+              therapyOpen
+                ? 'bg-amber-soft text-amber-ink'
+                : allDone
+                  ? 'bg-teal text-white'
+                  : dueNow
+                    ? 'bg-amber-soft text-amber-ink'
+                    : 'bg-mint text-teal'
             }`}
           >
-            {allDone ? (
+            {/*
+              Ranked above "all recorded": a day that has not said whether
+              there was therapy is not a finished day, whatever the ring says.
+            */}
+            {therapyOpen ? (
+              <>
+                <span className="lang-en">Answer today’s therapy question</span>
+                <span className="lang-hi">आज थेरेपी है? उत्तर दें</span>
+              </>
+            ) : allDone ? (
               <>
                 <span className="lang-en">All {schedule.length} recorded ✓</span>
                 <span className="lang-hi">सभी {schedule.length} दर्ज ✓</span>
@@ -230,6 +288,16 @@ export default async function TodayPage() {
           </p>
         </div>
       </section>
+
+      {/*
+        Under the ring, above the blood-pressure panel. It answers a question
+        that changes the number printed inside that ring, so it belongs as a
+        caption on it — and the navy panel below is the loudest object on a
+        430px screen, which would push this off the fold.
+      */}
+      {therapyAsked ? (
+        <TherapyPrompt careDate={today} answer={therapyAnswer} />
+      ) : null}
 
       <section className="rounded-2xl bg-navy p-4 shadow-soft">
         <div className="flex items-center justify-between gap-2">
@@ -325,6 +393,13 @@ export default async function TodayPage() {
           </span>
         </SheetTrigger>
       </section>
+
+      <WeightCard
+        summary={weight}
+        baselineGrams={household.weightBaselineGrams}
+        band={weightBand}
+        sparkPoints={weightSpark}
+      />
 
       <div className="flex items-baseline justify-between gap-2 px-0.5 pt-0.5">
         <p className="eyebrow">

@@ -1,5 +1,6 @@
 import { BpChart } from '@/components/bp-chart'
 import { PrintButton } from '@/components/print-button'
+import { WeightChart } from '@/components/weight-chart'
 import { bandOf, summarise } from '@/lib/bp'
 import { getHousehold } from '@/lib/household'
 import {
@@ -10,7 +11,18 @@ import {
   getDoseRecords,
   getMedicines,
   getSeizureEvents,
+  getTherapyDays,
+  getWeightReadings,
 } from '@/lib/queries'
+import { courseFinished, rulesOf } from '@/lib/schedule'
+import {
+  formatDeltaKg,
+  formatKg,
+  formatPercent,
+  lossFromBaseline,
+  summariseWeight,
+  weightBandOf,
+} from '@/lib/weight'
 import {
   addDays,
   careDate,
@@ -21,6 +33,7 @@ import {
   prettyDateTime,
   prettyRxDate,
   prettyTime,
+  weekdayList,
 } from '@/lib/time'
 
 export const dynamic = 'force-dynamic'
@@ -38,14 +51,17 @@ export default async function ReportPage({
   const to = isDate(sp.to) ? sp.to! : today
   const from = isDate(sp.from) ? sp.from! : addDays(to, -29)
 
-  const [meds, allMeds, records, readings, seizures, notes] = await Promise.all([
-    getMedicines(household.id),
-    getAllMedicines(household.id),
-    getDoseRecords(household.id, from, to),
-    getBpReadings(household.id, 400),
-    getSeizureEvents(household.id),
-    getCareNotes(household.id),
-  ])
+  const [meds, allMeds, records, readings, seizures, notes, therapyDays, weights] =
+    await Promise.all([
+      getMedicines(household.id),
+      getAllMedicines(household.id),
+      getDoseRecords(household.id, from, to),
+      getBpReadings(household.id, 400),
+      getSeizureEvents(household.id),
+      getCareNotes(household.id),
+      getTherapyDays(household.id, from, to),
+      getWeightReadings(household.id, 400),
+    ])
 
   const band = bandOf(household)
   const bp = summarise(readings, band, 30)
@@ -53,8 +69,13 @@ export default async function ReportPage({
   const perDay = days.map((d) => ({
     date: d,
     doses:
-      d >= household.courseStart ? buildDaySchedule(meds, records, d) : [],
+      d >= household.courseStart
+        ? buildDaySchedule(meds, records, d, { therapyDays })
+        : [],
+    // null where nobody answered — printed as "not recorded", never as a "no".
+    therapy: therapyDays.has(d) ? therapyDays.get(d)! : null,
   }))
+  const therapyDayCount = perDay.filter((d) => d.therapy === true).length
   const all = perDay.flatMap((d) => d.doses)
   const activeIds = new Set(meds.map((m) => m.id))
   const medById = new Map(allMeds.map((m) => [m.id, m]))
@@ -69,12 +90,20 @@ export default async function ReportPage({
     importedRecords.filter((r) => r.status === 'skipped').length
   const notRecorded = all.filter((d) => d.status === 'not-recorded').length
 
-  const rangeReadings = readings.filter((r) => {
-    const d = new Date(r.measuredAt).toLocaleDateString('en-CA', {
-      timeZone: 'Asia/Kolkata',
-    })
+  const inRange = (at: Date | string) => {
+    const d = new Date(at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
     return d >= from && d <= to
-  })
+  }
+  const rangeReadings = readings.filter((r) => inRange(r.measuredAt))
+
+  const wBand = weightBandOf(household)
+  const weight = summariseWeight(
+    weights,
+    wBand,
+    household.weightBaselineGrams,
+    30,
+  )
+  const rangeWeights = weights.filter((r) => inRange(r.measuredAt))
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-5 py-8">
@@ -92,11 +121,12 @@ export default async function ReportPage({
         <p className="text-sm text-muted">
           Reporting period {prettyDate(from)} → {prettyDate(to)}
         </p>
-        <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+        <div className="mt-3 grid grid-cols-4 gap-3 text-center">
           {[
             { k: 'Taken', v: taken },
             { k: 'Skipped', v: skipped },
             { k: 'Not recorded', v: notRecorded },
+            { k: 'Therapy days', v: therapyDayCount },
           ].map((s) => (
             <div key={s.k} className="rounded-xl bg-paper px-3 py-2.5">
               <p className="text-xl font-bold text-navy">{s.v}</p>
@@ -119,7 +149,8 @@ export default async function ReportPage({
               <th className="py-2 pr-2 font-semibold">Medicine</th>
               <th className="py-2 pr-2 font-semibold">Dose</th>
               <th className="py-2 pr-2 font-semibold">Prescribed</th>
-              <th className="py-2 font-semibold">Times</th>
+              <th className="py-2 pr-2 font-semibold">Times</th>
+              <th className="py-2 font-semibold">Which days</th>
             </tr>
           </thead>
           <tbody>
@@ -131,12 +162,37 @@ export default async function ReportPage({
                 </td>
                 <td className="py-2 pr-2">{m.dose}</td>
                 <td className="py-2 pr-2">{m.prescription}</td>
-                <td className="py-2">
+                <td className="py-2 pr-2">
                   {m.slots.length
                     ? m.slots.map((s) => prettyTime(s.time)).join(' · ')
                     : m.kind === 'sos'
                       ? `SOS — ${m.sosStatus}`
                       : '—'}
+                </td>
+                {/*
+                  A medicine with a weekday or therapy rule must carry it here.
+                  A times column reading "8:00 am · 8:00 pm" beside Septran, on
+                  the chart a doctor reads, would say it is a daily tablet.
+                */}
+                <td className="py-2">
+                  {m.weekdays ? (
+                    <span className="block">{weekdayList(m.weekdays)} only</span>
+                  ) : null}
+                  {m.therapyOnly ? (
+                    <span className="block">Radiation therapy days only</span>
+                  ) : null}
+                  {m.courseStartDate && m.courseEndDate ? (
+                    <span className="block text-muted">
+                      {prettyRxDate(m.courseStartDate)} –{' '}
+                      {prettyRxDate(m.courseEndDate)}
+                      {courseFinished(rulesOf(m), today) ? ' · finished' : ''}
+                    </span>
+                  ) : null}
+                  {!m.weekdays && !m.therapyOnly && !m.courseStartDate
+                    ? m.kind === 'routine'
+                      ? 'Every day'
+                      : '—'
+                    : null}
                 </td>
               </tr>
             ))}
@@ -178,6 +234,60 @@ export default async function ReportPage({
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        ) : null}
+      </section>
+
+      <section className="print-page space-y-3">
+        <h2 className="text-lg font-bold text-navy">2b · Weight</h2>
+        <p className="text-sm text-muted">
+          {weight.count} weighings on file. Baseline{' '}
+          {formatKg(household.weightBaselineGrams)} kg
+          {weight.latest
+            ? `, latest ${formatKg(weight.latest.grams)} kg (${formatDeltaKg(weight.change!.deltaGrams)}, ${formatPercent(weight.change!.percent)})`
+            : ''}
+          . Home reference band {formatKg(wBand.lowGrams)}–
+          {formatKg(wBand.highGrams)} kg.
+          {weight.change?.flagged
+            ? ' Five per cent or more below baseline — flagged for review.'
+            : ''}
+        </p>
+        <WeightChart
+          readings={rangeWeights}
+          band={wBand}
+          baselineGrams={household.weightBaselineGrams}
+          width={640}
+          height={200}
+        />
+        {rangeWeights.length ? (
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-line text-[10px] tracking-wide text-muted uppercase">
+                <th className="py-2 pr-2 font-semibold">Measured at</th>
+                <th className="py-2 pr-2 font-semibold">Weight</th>
+                <th className="py-2 pr-2 font-semibold">From baseline</th>
+                <th className="py-2 font-semibold">Context / note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rangeWeights.map((r) => {
+                const change = lossFromBaseline(r.grams, household.weightBaselineGrams)
+                return (
+                  <tr key={r.id} className="border-b border-line/60 align-top">
+                    <td className="py-2 pr-2">{prettyDateTime(r.measuredAt)}</td>
+                    <td className="py-2 pr-2 font-semibold text-navy">
+                      {formatKg(r.grams)} kg
+                    </td>
+                    <td className="py-2 pr-2">
+                      {formatDeltaKg(change.deltaGrams)} ({formatPercent(change.percent)})
+                    </td>
+                    <td className="py-2">
+                      {[r.context, r.note].filter(Boolean).join(' · ') || '—'}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         ) : null}
@@ -234,6 +344,11 @@ export default async function ReportPage({
         {perDay.map((day) => (
           <div key={day.date} className="space-y-1">
             <h3 className="text-sm font-bold text-navy">{prettyDate(day.date)}</h3>
+            {/* Never inferred: a day nobody answered says so rather than "no". */}
+            <p className="text-[11px] text-muted">
+              Radiation therapy:{' '}
+              {day.therapy === null ? 'not recorded' : day.therapy ? 'yes' : 'no'}
+            </p>
             <table className="w-full text-left text-xs">
               <tbody>
                 {day.doses.map((d) => {
