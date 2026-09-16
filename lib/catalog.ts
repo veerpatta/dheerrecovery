@@ -261,7 +261,10 @@ export const CATALOG: CatalogMedicine[] = [
         time: '07:30',
         label: 'Morning · about 30 minutes before the capsule',
       },
-      { key: 'pm', time: '21:00', label: 'Night' },
+      // 6 pm, before dinner, is when the second tablet is actually given. The
+      // sheet prints 1–0–1 and no clock times, so this is the caregiver
+      // organiser doing its job rather than a departure from the prescription.
+      { key: 'pm', time: '18:00', label: 'Evening · before dinner' },
     ],
     tone: 'comfort',
     kind: 'routine',
