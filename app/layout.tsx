@@ -46,7 +46,19 @@ export const metadata: Metadata = {
   description:
     'Caregiver organiser for the 28 July 2026 prescription — doses, blood pressure, seizure watch and doctor-ready exports.',
   manifest: '/manifest.webmanifest',
-  icons: { icon: '/icon.svg', apple: '/icon.svg' },
+  /*
+   * The PNGs are not belt-and-braces. iOS ignores SVG icons completely, so
+   * without a real apple-touch-icon the Home-Screen app gets a grey
+   * screenshot of the page instead of the logo — and on iOS the Home Screen
+   * is the only place web push is allowed to work at all.
+   */
+  icons: {
+    icon: [
+      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+    ],
+    apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+  },
   robots: { index: false, follow: false },
   appleWebApp: { capable: true, title: 'Dheer Recovery', statusBarStyle: 'default' },
 }

@@ -11,6 +11,7 @@ import {
   doseSlots,
   households,
   medicines,
+  pushSubscriptions,
   seizureEvents,
   weightReadings,
   type BpReading,
@@ -280,6 +281,22 @@ const loadCore = cache(async (householdId: string): Promise<Core> => {
     weight,
   }
 })
+
+/** Devices receiving alerts, newest first, for the Settings list. */
+export const getPushDevices = cache(async (householdId: string) =>
+  db
+    .select({
+      id: pushSubscriptions.id,
+      label: pushSubscriptions.label,
+      lang: pushSubscriptions.lang,
+      supportsActions: pushSubscriptions.supportsActions,
+      lastSeenAt: pushSubscriptions.lastSeenAt,
+      endpoint: pushSubscriptions.endpoint,
+    })
+    .from(pushSubscriptions)
+    .where(eq(pushSubscriptions.householdId, householdId))
+    .orderBy(desc(pushSubscriptions.lastSeenAt)),
+)
 
 export async function getWeightReadings(
   householdId: string,

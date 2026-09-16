@@ -29,6 +29,17 @@ export const households = pgTable(
     courseStart: date('course_start').notNull().default('2026-07-28'),
     rxVerifiedAt: timestamp('rx_verified_at', { withTimezone: true }),
     alertLeadMinutes: integer('alert_lead_minutes').notNull().default(10),
+    /**
+     * Which pushed alerts this record wants. Toggles rather than times: the
+     * fire times are constants in lib/notify/plan.ts so the cron can decide
+     * whether a tick is even a candidate without touching the database, which
+     * is what keeps Neon asleep for all but a handful of minutes a day.
+     */
+    notifyMorning: boolean('notify_morning').notNull().default(true),
+    notifyEvening: boolean('notify_evening').notNull().default(true),
+    notifyWeight: boolean('notify_weight').notNull().default(true),
+    notifyBloods: boolean('notify_bloods').notNull().default(true),
+    notifyMilestones: boolean('notify_milestones').notNull().default(true),
     // Home reference band, editable only on the treating doctor's instruction.
     bandSystolicLow: integer('band_systolic_low').notNull().default(90),
     bandSystolicHigh: integer('band_systolic_high').notNull().default(135),
@@ -305,7 +316,92 @@ export const careNotes = pgTable(
   (t) => [index('care_notes_household_idx').on(t.householdId, t.createdAt)],
 )
 
+/**
+ * One row per device that has agreed to receive alerts.
+ *
+ * The endpoint is the credential the push service itself issued, so it is the
+ * identity — the unique index is on it rather than on a device name somebody
+ * typed. `lang` lives here because a service worker cannot read localStorage
+ * and so has no way to know which language the app is set to; payloads are
+ * encrypted per subscription anyway, so personalising each one costs nothing.
+ */
+export const pushSubscriptions = pgTable(
+  'push_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    endpoint: text('endpoint').notNull(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    /** 'en' | 'hi' — refreshed by PushSync whenever the app is opened. */
+    lang: text('lang').notNull().default('en'),
+    /** What the caregiver calls this phone, for the device list in Settings. */
+    label: text('label'),
+    /** False on every iPhone: iOS renders notifications with no buttons. */
+    supportsActions: boolean('supports_actions').notNull().default(false),
+    failureCount: integer('failure_count').notNull().default(0),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+    lastSentAt: timestamp('last_sent_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('push_subscriptions_endpoint_idx').on(t.endpoint),
+    index('push_subscriptions_household_idx').on(t.householdId),
+  ],
+)
+
+/**
+ * One row per alert per day — the idempotency guard and the audit trail.
+ *
+ * The cron ticks every five minutes, so something has to stop the morning
+ * greeting going out over and over. A row is claimed with ON CONFLICT DO
+ * NOTHING *before* anything is sent, and only the tick that won the insert
+ * sends. `attempts` lets a send that failed be retried a bounded number of
+ * times rather than lost outright.
+ *
+ * `id` is also what the push payload carries. That is what makes an action
+ * safe without any signature: the action route loads this row, refuses if
+ * `careDate` is no longer today (a notification left on a lock screen
+ * overnight) or if `actedAt` is already set (a second caregiver tapping the
+ * same alert on their own phone).
+ */
+export const notificationLog = pgTable(
+  'notification_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    /** 'morning' | 'evening' | 'weight' | 'bloods' | 'milestone' | 'test' */
+    kind: text('kind').notNull(),
+    careDate: date('care_date').notNull(),
+    claimedAt: timestamp('claimed_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    attempts: integer('attempts').notNull().default(1),
+    /** How many devices accepted it, for the Settings read-out. */
+    deviceCount: integer('device_count').notNull().default(0),
+    actedAt: timestamp('acted_at', { withTimezone: true }),
+    actedAction: text('acted_action'),
+  },
+  (t) => [
+    uniqueIndex('notification_log_household_kind_date_idx').on(
+      t.householdId,
+      t.kind,
+      t.careDate,
+    ),
+  ],
+)
+
 export type Household = typeof households.$inferSelect
+export type PushSubscription = typeof pushSubscriptions.$inferSelect
+export type NotificationLog = typeof notificationLog.$inferSelect
 export type Medicine = typeof medicines.$inferSelect
 export type DoseSlot = typeof doseSlots.$inferSelect
 export type DoseRecord = typeof doseRecords.$inferSelect

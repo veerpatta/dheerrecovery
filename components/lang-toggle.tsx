@@ -18,6 +18,13 @@ export function LangToggle() {
     setLang(next)
     localStorage.setItem(KEY, next)
     document.documentElement.dataset.lang = next
+    /*
+     * A service worker cannot read localStorage, so a subscribed device only
+     * knows which language to speak from the `lang` stored on its row. PushSync
+     * listens for this and updates it; without the event, notifications would
+     * keep arriving in the language the phone was subscribed in.
+     */
+    window.dispatchEvent(new Event('dheer-lang-change'))
   }
 
   return (

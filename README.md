@@ -49,8 +49,10 @@ card and on `/logs` rather than adding a third permanent control. Tapping
 **Taken** on a dose opens the time dialog — a big "Now", one-tap "15m ago"
 style chips, and a custom time — because caregivers log after settling the
 patient, not during, and recording the tap instant quietly corrupts every
-timing figure in the doctor report. Re-tapping **Taken ✓** still undoes
-immediately: a dialog in front of a correction is the wrong trade.
+timing figure in the doctor report. A recorded dose then shows no buttons at
+all — a filled "Taken ✓" beside an empty "Skip" reads as a live choice rather
+than a settled fact — so clearing one is a correction, tucked behind the card's
+disclosure with explicit wording about what it changes.
 
 The app tree is split by route group, which does not change any URL:
 
@@ -99,9 +101,12 @@ thing standing between a stranger and the medical data.
 | `/history`       | Dose map, on-time score, salt intake, ledger, exports      |
 | `/safety`        | Emergency numbers, the four safety rules, review questions |
 | `/logs`          | BP + weight analysis, 14-day strips, seizure watch, notes  |
-| `/settings`      | Alert lead time, reminder times, add medicine              |
+| `/settings`      | Alerts, reminder times, add medicine                       |
 | `/report`        | Printable multi-page doctor report (Save as PDF)           |
 | `/export/xlsx`   | Seven-worksheet Excel export                               |
+| `/catch-up`      | Doses left unrecorded — where an evening alert lands       |
+| `/api/cron/tick` | The scheduler's one endpoint, secret-guarded               |
+| `/api/push/*`    | subscribe · unsubscribe · act on a notification            |
 | `/c/<code>/…`    | Permanent redirect to the equivalent path above            |
 
 ## Local development
@@ -119,15 +124,16 @@ the app runs against a local Postgres with no Neon account.
 
 ## Database
 
-Nine tables — `households`, `medicines`, `dose_slots`, `dose_records`,
-`care_days`, `bp_readings`, `weight_readings`, `seizure_events`, `care_notes`.
+Eleven tables — `households`, `medicines`, `dose_slots`, `dose_records`,
+`care_days`, `bp_readings`, `weight_readings`, `seizure_events`, `care_notes`,
+`push_subscriptions` and `notification_log`.
 Creating a record seeds the thirteen catalogue medicines and their reminder
 slots from `lib/catalog.ts`, which holds the prescription text transcribed
 verbatim.
 
 `lib/catalog.ts` is read **only** by `createHousehold()`, so it reaches a new
 record and never one already deployed. Every catalogue change therefore ships
-with a hand-written data migration as well — see `0002`, `0003` and `0004`.
+with a hand-written data migration as well — see `0002` through `0005`.
 
 Five design notes worth keeping:
 
@@ -196,7 +202,7 @@ functions open many short-lived connections.
 
 ```bash
 npm run build
-DATABASE_URL="postgres://…" scripts/e2e.sh 3111        # local, 63 checks
+DATABASE_URL="postgres://…" scripts/e2e.sh 3111        # local, 104 checks
 ENTRY_URL="https://dheerrecovery.vercel.app/" node scripts/live-check.mjs
 ```
 
@@ -228,10 +234,95 @@ npm run dev -- -p 3112
 BASE_URL=http://127.0.0.1:3112 node scripts/hydration-check.mjs
 ```
 
+## Alerts
+
+Push notifications that arrive with the app closed. Five kinds, and
+deliberately **no alert for each individual dose** — eleven buzzes a day is how
+a caregiver learns to ignore the app. The evening wrap covers anything left
+unrecorded instead.
+
+| Kind | When | Silent when |
+|---|---|---|
+| Morning | 07:00 | the day has no doses at all |
+| Evening wrap | 21:45 | every dose is already recorded |
+| Weekly weight | Mondays 08:00 | already weighed today |
+| Blood tests | course days 6 and 7 | outside the course |
+| Milestone | course days 1, 7, 14, 21, 28, 35, 42 | any other day |
+
+Fire times are constants in `lib/notify/plan.ts`; Settings offers a **toggle**
+per kind, not a time. That is not laziness — see the Neon note below.
+
+**Logging a dose from a notification takes two taps, on purpose.** The
+notification opens `/catch-up`; the second tap is the time chip. A one-tap
+"Taken ✓" would record the moment the caregiver tapped, not the moment the
+tablet was swallowed, and `dose_records.scheduled_time` would carry that
+fiction into the on-time score and the doctor report. `components/dose-time-sheet.tsx`
+exists for exactly this reason.
+
+**iOS is the constraint that shapes the whole design.** Safari allows web push
+only for a page added to the Home Screen — in a tab, `Notification` is not even
+defined — and it renders notifications with **no action buttons at all**. So
+every alert is fully actionable by tapping its body, and the buttons Android
+shows are a bonus rather than the mechanism.
+
+### How the scheduling works
+
+An external cron (cron-job.org) POSTs `/api/cron/tick` every five minutes with
+`x-cron-secret`. The route also accepts Vercel Cron's `Authorization: Bearer`
+form, so moving to a Vercel Pro cron later needs only a `crons` entry in
+`vercel.json` and no code change.
+
+Two properties are load-bearing:
+
+- **The database is not touched on a quiet tick.** `planFor()` is pure
+  arithmetic on a clock string and runs before anything opens a connection. A
+  query every five minutes would never let Neon auto-suspend — 8,640
+  invocations a month against a free allowance of ~191 compute-hours. As
+  written, Postgres wakes about five times a day.
+- **A claim is taken before anything is sent.** `notification_log` is unique on
+  `(household_id, kind, care_date)` and the row is inserted with
+  `ON CONFLICT DO NOTHING`; only the tick that won the insert sends. Sending
+  first and recording after would resend the same alert on every tick for the
+  rest of the day. A send that fails is retried at most three times.
+
+`notification_log.id` travels in the push payload, and that is what makes an
+action safe without any signature: `/api/push/action` refuses when the row is
+for another day (a notification left on a lock screen overnight) or has already
+been acted on (a second caregiver's phone). There is no HMAC because there is
+nothing for it to protect — every export of `lib/actions.ts` is already a
+public unauthenticated endpoint.
+
+```bash
+# Preview the copy without sending anything
+curl -X POST -H "x-cron-secret: $CRON_SECRET" \
+  'http://127.0.0.1:3111/api/cron/tick?dry=1&kind=morning' | jq '.ran[0].en'
+
+# What the scheduler would do right now
+curl -X POST -H "x-cron-secret: $CRON_SECRET" \
+  'http://127.0.0.1:3111/api/cron/tick?dry=1' | jq
+```
+
+`node scripts/push-check.mjs` verifies the VAPID pair, that a payload actually
+encrypts, and that the service worker is served and handles the events it must.
+It cannot check delivery: a Chromium launched under automation has no
+connection to Apple's or Google's push service, so receiving a real
+notification has to be checked on a real device.
+
+**Testing on an iPhone:** open the site in Safari → Share → Add to Home Screen,
+close Safari completely, reopen from the icon, then Settings → *Turn on alerts
+on this phone* → *Send a test*. It should arrive on the lock screen with the
+app icon and no buttons.
+
+**Never rotate the VAPID keys on a live record.** They are half of every
+existing subscription; a new pair silently stops every phone and each one has
+to be turned on again by hand.
+
 ## Medicines in the catalogue
 
-**Routine (5)** — Pantocid‑DSR 40/30 · Lacoset 100 · Valprol CR 500 ·
-Betacap TR 40 · Tryptomer 10 → 7 scheduled doses a day.
+**Routine (8)** — Pantocid‑DSR 40/30 · Lacoset 100 · Valprol CR 500 ·
+Betacap TR 40 · Tryptomer 10, plus the 15 September chemoradiation sheet's
+Temozolomide 140 mg (radiotherapy days only) · Perinorm 10 · Septran DS
+(Mondays and Thursdays). Between 7 and 12 scheduled doses depending on the day.
 
 **SOS (5)** — Napra‑D 500/10 (current) · Zytee Gel LA, Dolo, Looz syrup
 (earlier discharge instructions, marked "confirm first") · ORS / safe fluids

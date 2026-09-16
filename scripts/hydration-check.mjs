@@ -31,7 +31,18 @@ await page.getByRole('button', { name: /^Taken$/ }).first().click()
 await page.waitForSelector('[role=dialog]')
 await page.getByRole('button', { name: /^Taken now$/ }).click()
 await page.waitForTimeout(2000)
-await page.getByRole('button', { name: /Taken ✓/ }).first().click()
+
+/*
+ * Undo goes through the disclosure, not a second tap on the button. A recorded
+ * dose deliberately shows no buttons at all — a filled "Taken ✓" beside an
+ * empty "Skip" reads as a live choice rather than a settled fact — so clearing
+ * one is a correction tucked behind the details element. This script looked
+ * for a "Taken ✓" button that has not existed since the timeline was reworked.
+ */
+const recorded = page.locator('li.rail-row').filter({ hasText: /Taken at/i }).first()
+await recorded.locator('summary').click()
+await page.waitForTimeout(400)
+await recorded.getByRole('button', { name: /^Remove the taken entry/ }).click()
 await page.waitForTimeout(2000)
 
 // The BP keypad is the densest client component, so exercise it explicitly.
@@ -62,6 +73,7 @@ for (const lang of ['en', 'hi']) {
     '/logs',
     '/logs?days=14',
     '/history',
+    '/catch-up',
     '/report',
     '/settings',
     '/chart',

@@ -12,6 +12,7 @@ import {
   doseSlots,
   households,
   medicines,
+  pushSubscriptions,
   seizureEvents,
   weightReadings,
 } from '@/db/schema'
@@ -631,6 +632,75 @@ export async function deleteWeight(id: string) {
     .delete(weightReadings)
     .where(and(eq(weightReadings.id, id), eq(weightReadings.householdId, h.id)))
   refresh()
+}
+
+// -------------------------------------------------------- push alerts ----
+
+/** Which alerts this record wants. One column per kind; see lib/notify/plan.ts. */
+export async function setPushKind(input: {
+  kind: 'morning' | 'evening' | 'weight' | 'bloods' | 'milestones'
+  on: boolean
+}) {
+  const h = await requireHousehold()
+  const column = {
+    morning: { notifyMorning: input.on },
+    evening: { notifyEvening: input.on },
+    weight: { notifyWeight: input.on },
+    bloods: { notifyBloods: input.on },
+    milestones: { notifyMilestones: input.on },
+  }[input.kind]
+  if (!column) throw new Error('Unknown alert.')
+
+  await db
+    .update(households)
+    .set({ ...column, updatedAt: new Date() })
+    .where(eq(households.id, h.id))
+  refresh()
+}
+
+/** Forget a device from the Settings list — the phone itself is not touched. */
+export async function removePushDevice(id: string) {
+  const h = await requireHousehold()
+  await db
+    .delete(pushSubscriptions)
+    .where(
+      and(eq(pushSubscriptions.id, id), eq(pushSubscriptions.householdId, h.id)),
+    )
+  refresh()
+}
+
+/**
+ * Send one notification to one device, now.
+ *
+ * Worth its own action rather than being folded into the cron: it exercises
+ * the VAPID keys, the encryption, the service worker's `push` handler and the
+ * icon paths in a single tap, which is the only way to find out that any of
+ * them is wrong before a real alert is due.
+ */
+export async function sendTestPush(endpoint: string) {
+  const h = await requireHousehold()
+  const { composeTest, payloadFor } = await import('./notify/compose')
+  const { sendToEndpoint } = await import('./notify/send')
+
+  const [device] = await db
+    .select({ lang: pushSubscriptions.lang })
+    .from(pushSubscriptions)
+    .where(
+      and(
+        eq(pushSubscriptions.householdId, h.id),
+        eq(pushSubscriptions.endpoint, endpoint),
+      ),
+    )
+    .limit(1)
+  if (!device) throw new Error('This device is not registered for alerts.')
+
+  const build = payloadFor(composeTest(), null, careDate())
+  const ok = await sendToEndpoint(h.id, endpoint, build(device.lang === 'hi' ? 'hi' : 'en'))
+  if (!ok) {
+    throw new Error(
+      'Could not send. Check the alert keys are set on the server, then try again.',
+    )
+  }
 }
 
 // -------------------------------------------------------- therapy days ----

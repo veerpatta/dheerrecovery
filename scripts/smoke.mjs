@@ -101,7 +101,17 @@ await page.screenshot({ path: `${shots}/01-today.png`, fullPage: true })
 
 // 2. Verify banner
 await page.getByRole('button', { name: /I checked the new prescription/i }).click()
-await settle()
+/*
+ * Wait for the banner to go rather than for a fixed interval. Writes here do
+ * not call `router.refresh()` — they rely on revalidatePath and the pending
+ * transition — so how long the tree takes to come back is however long the
+ * database takes, and a cold serverless Postgres is comfortably slower than
+ * the 400ms `settle()` allows.
+ */
+await page
+  .getByText(/VERIFY BEFORE FIRST USE/i)
+  .waitFor({ state: 'detached', timeout: 15000 })
+  .catch(() => {})
 check('verify banner clears', !/VERIFY BEFORE FIRST USE/i.test(await text()))
 
 // 2b. Every card carries its basics without being opened
@@ -390,6 +400,15 @@ await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
 const setText = await text()
 check('no sync card', !/sync code|Share caregiver link|Copy code/i.test(setText))
 check('alert-speed chips', /ALERT SPEED/i.test(setText) && /10 minutes/.test(setText))
+check('push alerts card', /ALERTS ON THIS PHONE/i.test(setText))
+check(
+  'per-alert toggles',
+  /Morning/.test(setText) && /Evening wrap/.test(setText) && /Course milestones/.test(setText),
+)
+check(
+  'says plainly there is no per-dose alert',
+  /no alert for each individual dose/i.test(setText),
+)
 check(
   'betacap printed time is not editable',
   /8:00 am/i.test(setText),
@@ -416,9 +435,14 @@ check(
   'today asks whether there is therapy',
   /Is there radiation therapy today\?/.test(beforeAnswer),
 )
+/*
+ * The prompt's own copy names the capsule — "the Temozolomide capsule is given
+ * only on a therapy day" — so the absence to assert is a dose card on the
+ * rail, not the word on the page.
+ */
 check(
-  'temozolomide is absent until the day is answered',
-  !/Temozolomide/.test(beforeAnswer),
+  'temozolomide is absent from the rail until the day is answered',
+  (await page.locator('li.rail-row').filter({ hasText: 'Temozolomide' }).count()) === 0,
 )
 check(
   'an unanswered day is never called finished',
@@ -463,10 +487,11 @@ await page.click('[data-weight-field="tenths"]')
 await page.click('[data-weight-key="6"]')
 const weightSheetText = await page.locator('[role=dialog]').innerText()
 check('weight sheet previews the reading', /88\.6 kg/.test(weightSheetText))
+// `.pill` is uppercase in CSS, so innerText reads "−2.4 KG".
 check(
   'weight sheet previews the change from baseline',
-  /−2\.4 kg/.test(weightSheetText),
-  weightSheetText.match(/[−+]\d+\.\d+ kg/)?.[0],
+  /−2\.4 kg/i.test(weightSheetText),
+  weightSheetText.match(/[−+]\d+\.\d+ kg/i)?.[0],
 )
 await page.getByRole('button', { name: /^Save weight$/ }).click()
 await settle(800)
@@ -474,6 +499,40 @@ await page.reload({ waitUntil: 'networkidle' })
 check('weight persisted', /88\.6 kg/.test(await text()))
 await page.goto(BASE, { waitUntil: 'networkidle' })
 check('weight shows on today', /88\.6 kg/.test(await text()))
+
+// 11d. Alerts — the scheduler is closed, the worker is served, and the page a
+//      notification lands on refuses to let anyone assert a dose in bulk.
+const noSecret = await page.request.post(`${BASE}/api/cron/tick`)
+check(
+  'the scheduler refuses an unauthenticated call',
+  noSecret.status() === 401 || noSecret.status() === 503,
+  `status ${noSecret.status()}`,
+)
+
+const swRes = await page.request.get(`${BASE}/sw.js`)
+check(
+  'service worker is served as JavaScript',
+  swRes.ok() && /javascript/.test(swRes.headers()['content-type'] ?? ''),
+)
+check('apple touch icon is served', (await page.request.get(`${BASE}/apple-touch-icon.png`)).ok())
+const manifest = await (await page.request.get(`${BASE}/manifest.webmanifest`)).json()
+check(
+  'manifest carries the PNG icons an install needs',
+  manifest.icons.some((i) => i.sizes === '192x192') &&
+    manifest.icons.some((i) => i.sizes === '512x512') &&
+    manifest.display === 'standalone',
+)
+
+await page.goto(`${BASE}/catch-up`, { waitUntil: 'networkidle' })
+const catchUp = await text()
+check(
+  'catch-up repeats the missing-entry rule',
+  /A missing entry does not prove a missed dose/.test(catchUp),
+)
+check(
+  'catch-up offers no bulk shortcut',
+  !/mark all|all taken|all as scheduled/i.test(catchUp),
+)
 
 // 12. Report
 await page.goto(`${BASE}/report`, { waitUntil: 'networkidle' })

@@ -1,4 +1,6 @@
 import Link from 'next/link'
+import { InstallCard } from '@/components/install-card'
+import { PushSetup } from '@/components/push-setup'
 import { ReminderRunner } from '@/components/reminders'
 import {
   AddMedicineForm,
@@ -11,6 +13,7 @@ import {
   buildDaySchedule,
   getDoseRecords,
   getMedicines,
+  getPushDevices,
   getTherapyDays,
 } from '@/lib/queries'
 import { careDate } from '@/lib/time'
@@ -21,10 +24,11 @@ export default async function SettingsPage() {
   const household = await getHousehold()
 
   const today = careDate()
-  const [meds, records, therapyDays] = await Promise.all([
+  const [meds, records, therapyDays, devices] = await Promise.all([
     getMedicines(household.id),
     getDoseRecords(household.id, today, today),
     getTherapyDays(household.id, today, today),
+    getPushDevices(household.id),
   ])
   const routine = meds.filter((m) => m.kind === 'routine')
 
@@ -61,6 +65,22 @@ export default async function SettingsPage() {
         </Link>
       </section>
 
+      <InstallCard />
+
+      <PushSetup
+        devices={devices.map((d) => ({
+          ...d,
+          lastSeenAt: d.lastSeenAt ? d.lastSeenAt.toISOString() : null,
+        }))}
+        enabled={{
+          morning: household.notifyMorning,
+          evening: household.notifyEvening,
+          weight: household.notifyWeight,
+          bloods: household.notifyBloods,
+          milestones: household.notifyMilestones,
+        }}
+      />
+
       <section className="card flex flex-col gap-2.5">
         <div>
           <p className="eyebrow">Alert speed</p>
@@ -68,8 +88,9 @@ export default async function SettingsPage() {
             Notification before every routine dose
           </h2>
           <p className="mt-1 text-[11.5px] leading-relaxed text-muted">
-            SOS medicine is intentionally excluded. Routine reminders appear while
-            this site is open, after notification permission is enabled.
+            SOS medicine is intentionally excluded. These are the older in-tab
+            reminders: unlike the alerts above, they only appear while this site
+            is open in a tab.
           </p>
         </div>
 

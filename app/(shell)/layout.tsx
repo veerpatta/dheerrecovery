@@ -4,6 +4,7 @@ import { LangToggle } from '@/components/lang-toggle'
 import { NavTabs } from '@/components/nav-tabs'
 import { Fab } from '@/components/fab'
 import { SheetHost } from '@/components/sheet-host'
+import { PushSync } from '@/components/push-sync'
 import { getHousehold } from '@/lib/household'
 import { getBpReadings, getMedicines, getSosRecords } from '@/lib/queries'
 import { bandOf } from '@/lib/bp'
@@ -84,6 +85,8 @@ export default async function ShellLayout({
         </main>
 
         <Fab sosCount={sos.length} />
+        {/* Keeps a subscribed device's language and endpoint current. */}
+        <PushSync />
         <NavTabs />
       </div>
 
