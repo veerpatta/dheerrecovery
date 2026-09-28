@@ -44,7 +44,7 @@ const devanagari = localFont({
 export const metadata: Metadata = {
   title: 'Dheer Recovery Medicines',
   description:
-    'Caregiver organiser for the 28 July 2026 prescription — doses, blood pressure, seizure watch and doctor-ready exports.',
+    'Caregiver organiser for the current prescriptions — doses, blood pressure, seizure watch and doctor-ready exports.',
   manifest: '/manifest.webmanifest',
   /*
    * The PNGs are not belt-and-braces. iOS ignores SVG icons completely, so

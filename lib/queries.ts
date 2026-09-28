@@ -24,6 +24,7 @@ import {
   type WeightReading,
 } from '@/db/schema'
 import {
+  CARE_START_DATE,
   CATALOG,
   PATIENT_NAME,
   PRESCRIBER,
@@ -46,8 +47,8 @@ export async function findHousehold(careCode: string): Promise<Household | null>
 }
 
 /**
- * Create a household pre-loaded with the whole catalogue — the 28 July 2026
- * prescription and the 15 September 2026 chemoradiation sheet both.
+ * Create a household pre-loaded with the current Paras prescription, the
+ * 15 September chemoradiation sheet and prior instructions retained for review.
  *
  * Safe to call concurrently. On a first visit to an empty database, Next
  * prefetches the nav links, so several requests race to seed at once — each
@@ -66,7 +67,7 @@ export async function createHousehold(careCode: string): Promise<Household> {
       prescriptionVersion: PRESCRIPTION_VERSION,
       prescriptionDate: PRESCRIPTION_DATE,
       prescriberName: PRESCRIBER,
-      courseStart: PRESCRIPTION_DATE,
+      courseStart: CARE_START_DATE,
     })
     .onConflictDoNothing({ target: households.careCode })
     .returning()

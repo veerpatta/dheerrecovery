@@ -83,7 +83,7 @@ const total = Number(body.match(/\d+\/(\d+) taken/)?.[1])
 const ring = (n) => new RegExp(`${n}/${total} taken`)
 check('scheduled doses seeded', total >= 7, `${total} slots`)
 check('nothing recorded yet', ring(0).test(body), body.match(/\d+\/\d+ taken/)?.[0])
-check('prescription date on today', body.includes('28 July 2026'))
+check('prescription date on today', body.includes('26 September 2026'))
 check('bottom nav present', (await page.locator('nav a[href="/logs"]').count()) === 1)
 
 // The floating stack must clear the last item rather than sitting on top of it.

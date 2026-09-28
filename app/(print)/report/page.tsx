@@ -136,8 +136,8 @@ export default async function ReportPage({
         </div>
         <p className="pt-2 text-xs leading-relaxed text-muted">
           Caregiver record only. A missing entry does not prove a missed dose.
-          Reminder clock times are a caregiver organiser; only Betacap’s 8:00 AM is
-          printed on the prescription.
+          Reminder clock times are a caregiver organiser unless a medicine card
+          identifies a time printed on its source prescription.
         </p>
       </header>
 
@@ -159,6 +159,9 @@ export default async function ReportPage({
                 <td className="py-2 pr-2">
                   <span className="font-semibold text-navy">{m.brand}</span>
                   <span className="block text-muted">{m.generic}</span>
+                  {m.prescribedAt ? (
+                    <span className="block text-muted">{m.prescribedAt}</span>
+                  ) : null}
                 </td>
                 <td className="py-2 pr-2">{m.dose}</td>
                 <td className="py-2 pr-2">{m.prescription}</td>

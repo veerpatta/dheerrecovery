@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic'
 export default async function SafetyPage() {
   const household = await getHousehold()
 
-  const supplyEnds = addDays(household.courseStart, SUPPLY_DAYS)
+  const supplyEnds = addDays(household.prescriptionDate, SUPPLY_DAYS)
   const daysLeft = daysBetween(careDate(), supplyEnds)
 
   /*
@@ -86,7 +86,7 @@ export default async function SafetyPage() {
           Questions for the treating team
         </h2>
         <p className="mt-1 text-[12.5px] text-muted">
-          Supply started {prettyRxDate(household.courseStart)} —{' '}
+          Latest one-month prescription dated {prettyRxDate(household.prescriptionDate)} —{' '}
           {daysLeft > 0
             ? `about ${daysLeft} day${daysLeft === 1 ? '' : 's'} left.`
             : 'the one-month supply window has passed; arrange review.'}

@@ -21,6 +21,9 @@ export default async function ChartPage() {
   const meds = await getMedicines(household.id)
   const routine = meds.filter((m) => m.kind === 'routine')
   const sos = meds.filter((m) => m.kind === 'sos')
+  const olderRoutine = routine.filter(
+    (m) => m.prescribedAt === 'Paras Hospitals · 28 Jul 2026',
+  )
   const today = careDate()
 
   function Card({ m }: { m: (typeof meds)[number] }) {
@@ -161,16 +164,27 @@ export default async function ChartPage() {
           <span className="lang-hi">पूरा चार्ट</span>
         </h1>
         <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
-          Transcribed from {household.prescriberName}’s Paras Hospitals
-          prescription. Old discharge-only medicines have been removed from the
-          active chart.
+          The 26 September Paras Hospitals prescription is shown alongside the
+          15 September chemoradiation instructions. Each card names its source.
         </p>
         <p className="note mt-2">
-          Printed instruction: every medicine says “as directed.” Food notes below
-          are clearly marked general guidance; the strip label, pharmacist and
-          treating doctor take priority.
+          The 26 September sheet says “as directed” for its medicines. Reminder
+          times are a caregiver organiser; the strip label and treating team take
+          priority.
         </p>
       </section>
+
+      {olderRoutine.length ? (
+        <section className="rounded-2xl border border-amber/40 bg-amber-soft p-4">
+          <p className="eyebrow text-amber">Confirm with the treating team</p>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-ink">
+            {olderRoutine.map((m) => m.brand).join(', ')} appeared on the 28 July
+            prescription but not on the 26 September sheet. The existing reminder
+            remains until the treating team confirms whether to continue it.
+            Do not stop a medicine because it is absent from one sheet.
+          </p>
+        </section>
+      ) : null}
 
       <p className="eyebrow px-0.5">
         Routine · {routine.length} medicines · daily schedule

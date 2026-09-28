@@ -23,8 +23,8 @@ export const households = pgTable(
     patientName: text('patient_name').notNull().default('Dheer'),
     prescriptionVersion: text('prescription_version')
       .notNull()
-      .default('paras-ajit-singh-2026-07-28'),
-    prescriptionDate: date('prescription_date').notNull().default('2026-07-28'),
+      .default('paras-ajit-singh-2026-09-26'),
+    prescriptionDate: date('prescription_date').notNull().default('2026-09-26'),
     prescriberName: text('prescriber_name').notNull().default('Dr Ajit Singh'),
     courseStart: date('course_start').notNull().default('2026-07-28'),
     rxVerifiedAt: timestamp('rx_verified_at', { withTimezone: true }),

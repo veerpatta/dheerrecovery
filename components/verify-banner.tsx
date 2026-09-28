@@ -25,8 +25,8 @@ export function VerifyBanner({
       </p>
       <p className="text-[12.5px] leading-relaxed text-ink/80">
         Check each strip against the {prescriptionDate} prescription and the
-        15 September 2026 chemoradiation sheet. Reminder times are an organiser;
-        only Betacap’s 8:00 AM time is explicitly printed.
+        15 September 2026 chemoradiation sheet. Reminder clock times are a
+        caregiver organiser unless a card specifically says the time was printed.
       </p>
       <button
         type="button"

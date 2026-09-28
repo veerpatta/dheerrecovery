@@ -1,23 +1,23 @@
 /**
  * Medicine catalogue transcribed from Dr Ajit Singh's Paras Hospitals
- * prescription dated 28 July 2026, plus the earlier 20 July 2026 hospital
- * discharge guide for the SOS entries, plus Dr Ankit Agarwal's Geetanjali
- * Cancer Centre chemoradiation sheet dated 15 September 2026.
+ * prescriptions dated 28 July and 26 September 2026, plus the earlier
+ * 20 July hospital discharge guide for SOS entries and Dr Ankit Agarwal's
+ * Geetanjali Cancer Centre sheet dated 15 September 2026.
  *
  * Clinical wording is copied verbatim from the source prescription sheet and
  * must not be paraphrased. Reminder clock times are a caregiver organiser —
- * only Betacap's 8:00 AM is explicitly printed on either prescription.
+ * only the older Betacap instruction explicitly prints a clock time.
  *
- * The header constants below still name the 28 July sheet. They describe the
- * care record as a whole and are printed as one line in the report header, so
- * the newer sheet's provenance is carried per-medicine in `prescribedAt`
- * instead — which is what that field is for.
+ * The header names the latest Paras sheet; per-medicine provenance distinguishes
+ * it from the continuing chemoradiation sheet and older instructions.
  */
 
-export const PRESCRIPTION_VERSION = 'paras-ajit-singh-2026-07-28'
-export const PRESCRIPTION_DATE = '2026-07-28'
+export const PRESCRIPTION_VERSION = 'paras-ajit-singh-2026-09-26'
+export const PRESCRIPTION_DATE = '2026-09-26'
+export const CARE_START_DATE = '2026-07-28'
 export const PRESCRIBER = 'Dr Ajit Singh'
 export const PATIENT_NAME = 'Dheer'
+export const LATEST_PARAS_PRESCRIBED_AT = 'Paras Hospitals · 26 Sep 2026'
 
 /**
  * The chemoradiation course from the 15 September 2026 Geetanjali sheet:
@@ -95,7 +95,7 @@ export const CATALOG: CatalogMedicine[] = [
     tone: 'recovery',
     kind: 'routine',
     food: 'Prescription says “as directed.” These ingredients are commonly taken before food; confirm the exact gap on the strip or with the pharmacist.',
-    prescribedAt: 'Paras Hospitals · 28 Jul 2026',
+    prescribedAt: LATEST_PARAS_PRESCRIBED_AT,
     doctorNote: 'Morning; food timing not printed.',
     instruction:
       'Swallow whole. Use the pharmacy label if it gives a specific before-food interval.',
@@ -122,7 +122,7 @@ export const CATALOG: CatalogMedicine[] = [
     tone: 'seizure',
     kind: 'routine',
     food: 'May be taken with or without food; keep the routine consistent.',
-    prescribedAt: 'Paras Hospitals · 28 Jul 2026',
+    prescribedAt: LATEST_PARAS_PRESCRIBED_AT,
     doctorNote: 'Morning and evening; exact clock times not printed.',
     instruction: 'Swallow whole and take at the same times each day.',
     caution:
@@ -148,7 +148,7 @@ export const CATALOG: CatalogMedicine[] = [
     tone: 'seizure',
     kind: 'routine',
     food: 'May be taken with or without food; take it the same way each day.',
-    prescribedAt: 'Paras Hospitals · 28 Jul 2026',
+    prescribedAt: LATEST_PARAS_PRESCRIBED_AT,
     doctorNote: 'Morning and evening; exact clock times not printed.',
     instruction: 'Swallow the CR tablet whole; do not crush or chew.',
     caution:
@@ -177,7 +177,7 @@ export const CATALOG: CatalogMedicine[] = [
     instruction: 'Take at 8:00 AM. Swallow the modified-release tablet whole.',
     caution:
       'Can lower pulse and blood pressure. Do not stop suddenly; seek advice for fainting, wheezing or a very slow pulse with symptoms.',
-    verify: 'Confirm the TR / modified-release form on the strip.',
+    verify: 'Betacap is absent from the 26 September sheet. Confirm with the treating team whether it continues, and check the TR / modified-release form on the strip.',
   },
   {
     id: 'tryptomer',
@@ -194,7 +194,7 @@ export const CATALOG: CatalogMedicine[] = [
     tone: 'comfort',
     kind: 'routine',
     food: 'May be taken with or without food; the prescription only specifies night.',
-    prescribedAt: 'Paras Hospitals · 28 Jul 2026',
+    prescribedAt: LATEST_PARAS_PRESCRIBED_AT,
     doctorNote: 'Night; exact clock time not printed.',
     instruction:
       'Take at night because it can cause sleepiness. Use the reminder time that best matches the doctor’s advice.',
@@ -329,7 +329,7 @@ export const CATALOG: CatalogMedicine[] = [
     sosStatus: 'current',
     symptom: 'Headache / pain with nausea',
     food: 'The prescription says only “SOS.” The one-page guide says to give it with or after food.',
-    prescribedAt: 'Paras Hospitals · 28 Jul 2026',
+    prescribedAt: LATEST_PARAS_PRESCRIBED_AT,
     doctorNote:
       'Remarks: SOS. No trigger, minimum interval or daily maximum is printed.',
     instruction:
@@ -484,7 +484,7 @@ export const SOS = CATALOG.filter((m) => m.kind === 'sos')
  * `buildDaySchedule` for a date rather than reaching for a number.
  */
 
-/** The 28 July prescription is written for one month. */
+/** The current 26 September prescription is written for one month. */
 export const SUPPLY_DAYS = 30
 
 /**
@@ -544,6 +544,7 @@ export const SAFETY_RULES = [
 
 export const REVIEW_QUESTIONS = [
   'Continue, taper, or change each daily medicine?',
+  'Betacap is absent from the 26 September sheet. Should it continue, change, or be tapered?',
   'What exact symptom, minimum gap and daily maximum apply to Napra‑D?',
   'Are Zytee Gel LA, Dolo or Looz still permitted, and at what exact strength or duration?',
   'Are blood tests needed for Valprol?',

@@ -1,8 +1,9 @@
 # Dheer Recovery Medicines
 
-A caregiver organiser for two prescriptions — the 28 July 2026 Paras Hospitals
-sheet from Dr Ajit Singh, and the 15 September 2026 Geetanjali Cancer Centre
-chemoradiation sheet from Dr Ankit Agarwal: daily dose tracking, blood-pressure
+A caregiver organiser for the 26 September 2026 Paras Hospitals prescription
+from Dr Ajit Singh, the 15 September 2026 Geetanjali Cancer Centre
+chemoradiation sheet from Dr Ankit Agarwal, and relevant earlier instructions:
+daily dose tracking, blood-pressure
 and weight logging with analysis, seizure watch, caregiver notes, and
 doctor-ready Excel/PDF exports.
 
@@ -14,7 +15,7 @@ living in one browser's local storage.
 
 > This app supports — it does not replace — the prescription and the treating
 > team. A missing entry does not prove a missed dose. Reminder clock times are
-> a caregiver organiser; only Betacap's 8:00 AM is printed on the prescription.
+> a caregiver organiser; follow the source sheet and treating team's directions.
 
 ---
 
@@ -323,6 +324,8 @@ to be turned on again by hand.
 Betacap TR 40 · Tryptomer 10, plus the 15 September chemoradiation sheet's
 Temozolomide 140 mg (radiotherapy days only) · Perinorm 10 · Septran DS
 (Mondays and Thursdays). Between 7 and 12 scheduled doses depending on the day.
+Betacap was on the 28 July sheet but is absent from the 26 September sheet;
+its reminder remains pending confirmation from the treating team.
 
 **SOS (5)** — Napra‑D 500/10 (current) · Zytee Gel LA, Dolo, Looz syrup
 (earlier discharge instructions, marked "confirm first") · ORS / safe fluids
