@@ -1,0 +1,23 @@
+// Cloudflare Workers config (OpenNext). `npm run cf:deploy` builds .open-next/ and uploads it.
+// Secrets (DATABASE_URL, VAPID_*, CRON_SECRET, PRIMARY_CARE_CODE) are set with
+// `wrangler secret put <NAME>` or synced from the VPPS vault — never written here.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dheerrecovery",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "dheerrecovery"
+    }
+  ],
+  // Run the Worker close to the Neon database (Singapore) instead of next to each visitor.
+  "placement": { "mode": "smart" },
+  "observability": { "enabled": true }
+}

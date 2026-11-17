@@ -3,5 +3,14 @@
   "framework": "nextjs",
   "buildCommand": "next build",
   "installCommand": "npm install",
-  "regions": ["sin1"]
+  "regions": [
+    "sin1"
+  ],
+  "redirects": [
+    {
+      "source": "/:path*",
+      "destination": "https://dheerrecovery.raj-39e.workers.dev/:path*",
+      "permanent": false
+    }
+  ]
 }
