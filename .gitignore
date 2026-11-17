@@ -11,3 +11,8 @@ next-env.d.ts
 /scripts/*.log
 .env*
 !.env.example
+
+# Cloudflare (OpenNext)
+.open-next
+.wrangler
+.dev.vars*
